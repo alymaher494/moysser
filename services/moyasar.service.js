@@ -52,10 +52,13 @@ class MoyasarService {
                 amount: toHalalah(paymentData.amount),
                 currency: paymentData.currency,
                 description: paymentData.description,
-                source: paymentData.source,
                 callback_url: paymentData.callback_url,
                 metadata: paymentData.metadata || {},
             };
+
+            if (paymentData.source) {
+                payload.source = paymentData.source;
+            }
 
             logger.info(`Creating Moyasar payment for amount: ${paymentData.amount} ${paymentData.currency}`);
             const response = await this.client.post('/payments', payload);
