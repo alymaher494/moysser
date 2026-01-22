@@ -1,17 +1,18 @@
-const EcwidService = require('../services/ecwid.service');
-const MoyasarService = require('../services/moyasar.service');
-const { mapEcwidOrderToPayment } = require('../utils/ecwid-mapper');
-const response = require('../utils/response');
-const logger = require('../utils/logger');
+const getEcwidService = () => {
+    return new EcwidService(process.env.ECWID_STORE_ID, process.env.ECWID_TOKEN);
+};
 
-const ecwid = new EcwidService(process.env.ECWID_STORE_ID, process.env.ECWID_TOKEN);
-const moyasar = new MoyasarService(process.env.MOYASAR_API_KEY_LIVE || process.env.MOYASAR_API_KEY_TEST);
+const getMoyasarService = () => {
+    const apiKey = process.env.MOYASAR_API_KEY_LIVE || process.env.MOYASAR_API_KEY_TEST;
+    return new MoyasarService(apiKey);
+};
 
 /**
  * Order Controller
  */
 const getOrder = async (req, res, next) => {
     try {
+        const ecwid = getEcwidService();
         const order = await ecwid.getOrder(req.params.id);
         return response.success(res, 'Order details retrieved', order);
     } catch (error) {
@@ -24,6 +25,7 @@ const initiateOrderPayment = async (req, res, next) => {
         const { id } = req.params;
 
         // 1. Get order from Ecwid
+        const ecwid = getEcwidService();
         const order = await ecwid.getOrder(id);
 
         // 2. Map Ecwid order to Moyasar payment data
@@ -36,6 +38,7 @@ const initiateOrderPayment = async (req, res, next) => {
         paymentData.source = { type: 'creditcard' }; // Default or from request
 
         // 4. Create payment in Moyasar
+        const moyasar = getMoyasarService();
         const payment = await moyasar.createPayment(paymentData);
 
         // 5. Return the transaction URL to redirect the user
@@ -54,10 +57,12 @@ const syncOrderStatus = async (req, res, next) => {
         const { id } = req.params;
         const { paymentId } = req.body;
 
+        const moyasar = getMoyasarService();
         const payment = await moyasar.getPayment(paymentId);
         const { mapMoyasarStatusToEcwid } = require('../utils/ecwid-mapper');
         const ecwidStatus = mapMoyasarStatusToEcwid(payment.status);
 
+        const ecwid = getEcwidService();
         await ecwid.updateOrderPaymentStatus(id, ecwidStatus, {
             transactionId: paymentId,
             message: `Synced via API. Moyasar status: ${payment.status}`

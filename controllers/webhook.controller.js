@@ -1,17 +1,13 @@
-const MoyasarService = require('../services/moyasar.service');
-const EcwidService = require('../services/ecwid.service');
-const { mapMoyasarStatusToEcwid } = require('../utils/ecwid-mapper');
-const response = require('../utils/response');
-const logger = require('../utils/logger');
-
-const ecwid = new EcwidService(process.env.ECWID_STORE_ID, process.env.ECWID_TOKEN);
-const moyasar = new MoyasarService(process.env.MOYASAR_API_KEY_LIVE || process.env.MOYASAR_API_KEY_TEST);
+const getEcwidService = () => {
+    return new EcwidService(process.env.ECWID_STORE_ID, process.env.ECWID_TOKEN);
+};
 
 /**
  * Webhook Controller
  */
 const handleMoyasarWebhook = async (req, res, next) => {
     try {
+        const ecwid = getEcwidService();
         const { id, status, amount, metadata } = req.body.data || req.body;
         const orderNumber = metadata.order_number || metadata.order_id;
 
