@@ -9,7 +9,7 @@ class MoyasarService {
      */
     constructor(apiKey) {
         if (!apiKey) {
-            throw new InternalServerError('Moyasar API Key is missing');
+            throw new InternalServerError('Moyasar API Key is missing. Please check your Environment Variables (MOYASAR_API_KEY_TEST or MOYASAR_API_KEY_LIVE).');
         }
 
         this.apiKey = apiKey.trim();
