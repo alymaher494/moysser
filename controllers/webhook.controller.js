@@ -15,6 +15,15 @@ const handleMoyasarWebhook = async (req, res, next) => {
         const ecwid = getEcwidService();
         logger.info('Received Moyasar Webhook Payload:', JSON.stringify(req.body));
 
+        // Webhook Secret Validation
+        const webhookSecret = process.env.MOYASAR_WEBHOOK_SECRET;
+        const receivedToken = req.headers['x-moyasar-token'] || req.body.secret_token;
+
+        if (webhookSecret && receivedToken !== webhookSecret) {
+            logger.warn('Moyasar Webhook received with invalid secret token');
+            return res.status(401).send('Unauthorized: Invalid Webhook Secret');
+        }
+
         const { id, status, amount, metadata } = req.body.data || req.body;
         const orderNumber = metadata.order_number || metadata.order_id;
 
