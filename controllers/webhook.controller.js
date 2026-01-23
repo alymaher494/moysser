@@ -13,6 +13,8 @@ const getEcwidService = () => {
 const handleMoyasarWebhook = async (req, res, next) => {
     try {
         const ecwid = getEcwidService();
+        logger.info('Received Moyasar Webhook Payload:', JSON.stringify(req.body));
+
         const { id, status, amount, metadata } = req.body.data || req.body;
         const orderNumber = metadata.order_number || metadata.order_id;
 

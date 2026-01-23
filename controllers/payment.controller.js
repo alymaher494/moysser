@@ -50,8 +50,45 @@ const verifyPayment = async (req, res, next) => {
     }
 };
 
+const EcwidService = require('../services/ecwid.service');
+const { mapMoyasarStatusToEcwid } = require('../utils/ecwid-mapper');
+
+const getEcwidService = () => {
+    return new EcwidService(process.env.ECWID_STORE_ID, process.env.ECWID_TOKEN);
+};
+
+const handleCallback = async (req, res, next) => {
+    try {
+        const { orderId, id, status, message } = req.query;
+        const moyasar = getMoyasarService();
+
+        // If we have an ID (payment ID), verify it
+        if (id) {
+            const payment = await moyasar.getPayment(id);
+            const ecwidStatus = mapMoyasarStatusToEcwid(payment.status);
+            const ecwid = getEcwidService();
+
+            await ecwid.updateOrderPaymentStatus(orderId, ecwidStatus, {
+                transactionId: id,
+                message: `Updated via Callback. Status: ${payment.status}`
+            });
+        }
+
+        // Redirect user back to the store or a success page
+        // For now, let's redirect to our own success/failure pages
+        if (status === 'paid' || status === 'captured') {
+            return res.redirect('/checkout/payment/success');
+        } else {
+            return res.redirect('/checkout/payment/failure');
+        }
+    } catch (error) {
+        next(error);
+    }
+};
+
 module.exports = {
     createPayment,
     getPayment,
-    verifyPayment
+    verifyPayment,
+    handleCallback
 };
