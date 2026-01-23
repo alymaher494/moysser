@@ -9,7 +9,7 @@ const response = require('../utils/response');
 
 // Landing page for checkout redirection from Ecwid
 router.get('/:orderId', (req, res) => {
-  res.send(`
+    res.send(`
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
     <head>
@@ -56,25 +56,33 @@ router.get('/:orderId', (req, res) => {
 
         <script>
             // Automatically initiate payment creation via API
+            const apiKey = "${process.env.APP_API_KEY || ''}";
+            
             fetch('/api/orders/${req.params.orderId}/pay', { 
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-API-KEY': apiKey
+                }
             })
             .then(res => res.json())
             .then(data => {
                 if (data.success && data.data.transactionUrl) {
                     window.location.href = data.data.transactionUrl;
                 } else {
+                    console.error('Payment initiation failed:', data);
                     document.body.innerHTML = \`
                         <h1 style="color: #ef4444">حدث خطأ أثناء التجهيز</h1>
                         <p>\${data.message || 'يرجى مراجعة إعدادات الـ API Key'}</p>
+                        <hr style="border: 0; border-top: 1px solid #334155; width: 50%; margin: 1.5rem 0;">
+                        <p style="font-size: 0.8rem; color: #64748b;">\${data.errors ? JSON.stringify(data.errors) : ''}</p>
                         <a href="/" style="color: #2563eb; text-decoration: none; margin-top: 2rem; display: block;">العودة للرئيسية</a>
                     \`;
                 }
             })
             .catch(err => {
                 console.error(err);
-                document.body.innerHTML = '<h1>حدث خطأ غير متوقع</h1>';
+                document.body.innerHTML = '<h1>حدث خطأ غير متوقع في جلب البيانات</h1>';
             });
         </script>
     </body>
@@ -83,11 +91,11 @@ router.get('/:orderId', (req, res) => {
 });
 
 router.get('/payment/success', (req, res) => {
-  res.send('<h1>تم الدفع بنجاح!</h1><p>شكراً لثقتك بنا.</p>');
+    res.send('<h1>تم الدفع بنجاح!</h1><p>شكراً لثقتك بنا.</p>');
 });
 
 router.get('/payment/failure', (req, res) => {
-  res.send('<h1>فشلت عملية الدفع</h1><p>يرجى المحاولة مرة أخرى.</p>');
+    res.send('<h1>فشلت عملية الدفع</h1><p>يرجى المحاولة مرة أخرى.</p>');
 });
 
 module.exports = router;

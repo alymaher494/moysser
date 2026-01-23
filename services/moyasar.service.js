@@ -69,6 +69,28 @@ class MoyasarService {
     }
 
     /**
+     * Create a payment invoice (Hosted Checkout)
+     * @param {Object} invoiceData 
+     */
+    async createInvoice(invoiceData) {
+        try {
+            const payload = {
+                amount: toHalalah(invoiceData.amount),
+                currency: invoiceData.currency,
+                description: invoiceData.description,
+                callback_url: invoiceData.callback_url,
+                metadata: invoiceData.metadata || {},
+            };
+
+            logger.info(`Creating Moyasar invoice for amount: ${invoiceData.amount} ${invoiceData.currency}`);
+            const response = await this.client.post('/invoices', payload);
+            return response.data;
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
      * Get payment details
      * @param {string} id 
      */

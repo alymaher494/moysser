@@ -37,15 +37,15 @@ const initiateOrderPayment = async (req, res, next) => {
         paymentData.callback_url = `${protocol}://${host}/api/payments/callback?orderId=${id}`;
         paymentData.source = { type: 'creditcard' }; // Default or from request
 
-        // 4. Create payment in Moyasar
+        // 4. Create invoice in Moyasar (for Hosted Redirection)
         const moyasar = getMoyasarService();
-        const payment = await moyasar.createPayment(paymentData);
+        const invoice = await moyasar.createInvoice(paymentData);
 
-        // 5. Return the transaction URL to redirect the user
+        // 5. Return the invoice URL to redirect the user
         return response.success(res, 'Payment initiated', {
             orderId: id,
-            paymentId: payment.id,
-            transactionUrl: payment.source.transaction_url
+            paymentId: invoice.id,
+            transactionUrl: invoice.url
         });
     } catch (error) {
         next(error);
