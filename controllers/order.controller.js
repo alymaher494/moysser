@@ -40,7 +40,6 @@ const initiateOrderPayment = async (req, res, next) => {
         const protocol = req.secure ? 'https' : 'http';
         const host = req.get('host');
         paymentData.callback_url = `${protocol}://${host}/api/payments/callback?orderId=${id}`;
-        paymentData.source = { type: 'creditcard' }; // Default or from request
 
         // 4. Create invoice in Moyasar (for Hosted Redirection)
         const moyasar = getMoyasarService();
