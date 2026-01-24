@@ -13,7 +13,8 @@ const errorMiddleware = (err, req, res, next) => {
     const response = {
         success: false,
         message,
-        ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
+        // Include detailed error data for 400 errors to help debug validation issues
+        ...((process.env.NODE_ENV === 'development' || statusCode === 400) && { errors: err.stack }),
     };
 
     if (statusCode === 500) {

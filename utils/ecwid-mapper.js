@@ -9,9 +9,9 @@ const mapEcwidOrderToPayment = (order) => {
         description: `Payment for Ecwid Order #${order.orderNumber}`,
         callback_url: '', // To be filled by the route handler
         metadata: {
-            order_id: order.id,
-            order_number: order.orderNumber,
-            customer_email: order.email,
+            order_id: String(order.id || ''),
+            order_number: String(order.orderNumber || ''),
+            customer_email: String(order.email || ''),
             platform: 'Ecwid'
         }
     };
