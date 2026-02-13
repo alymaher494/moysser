@@ -33,6 +33,21 @@ const getOrder = async (req, res, next) => {
     }
 };
 
+const getPaymentMethod = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const ecwid = getEcwidService();
+        const order = await ecwid.getOrder(id);
+
+        return response.success(res, 'Payment method retrieved', {
+            orderId: id,
+            paymentMethod: order.paymentMethod
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 const initiateOrderPayment = async (req, res, next) => {
     try {
         const { id } = req.params;
@@ -92,6 +107,7 @@ const syncOrderStatus = async (req, res, next) => {
 
 module.exports = {
     getOrder,
+    getPaymentMethod,
     initiateOrderPayment,
     syncOrderStatus
 };

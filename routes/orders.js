@@ -13,6 +13,9 @@ router.post('/ecwid-redirect', (req, res) => {
     return res.redirect(`/checkout/${orderId}`);
 });
 
+// Public route for payment bridge script
+router.get('/:id/payment-method', orderController.getPaymentMethod);
+
 router.get('/:id', auth, orderController.getOrder);
 router.post('/:id/pay', auth, orderController.initiateOrderPayment);
 router.post('/:id/sync', auth, orderController.syncOrderStatus);
