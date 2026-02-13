@@ -1,4 +1,4 @@
-const axios = require('axios');
+const https = require('https');
 const logger = require('../utils/logger');
 const { InternalServerError, ApiError } = require('../utils/errors');
 
@@ -10,9 +10,42 @@ class PayoneService {
     }
 
     /**
+     * Make a POST request using native https (no axios dependency issues)
+     */
+    _post(url, body) {
+        return new Promise((resolve, reject) => {
+            const urlObj = new URL(url);
+            const options = {
+                hostname: urlObj.hostname,
+                path: urlObj.pathname,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Content-Length': Buffer.byteLength(body)
+                }
+            };
+
+            const req = https.request(options, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                    try {
+                        resolve(JSON.parse(data));
+                    } catch (e) {
+                        resolve(data);
+                    }
+                });
+            });
+
+            req.on('error', reject);
+            req.write(body);
+            req.end();
+        });
+    }
+
+    /**
      * Create an invoice link for the customer.
-     * Payone SmartLink API: POST body = invoices=<URL_ENCODED_JSON>
-     * Content-Type: application/x-www-form-urlencoded
+     * Uses native https to avoid axios encoding issues on Vercel.
      * TESTED & CONFIRMED WORKING on 2026-02-13.
      */
     async createInvoice(paymentData) {
@@ -26,7 +59,7 @@ class PayoneService {
             invoicesDetails: [{
                 invoiceID: String(paymentData.orderId) + '-' + Date.now(),
                 amount: String(paymentData.amount),
-                currency: '682', // SAR = ISO 4217 numeric code 682
+                currency: '682',
                 paymentDescription: paymentData.description || `Order ${paymentData.orderId}`,
                 customerID: paymentData.metadata?.customer_name || 'Guest',
                 customerEmailAddress: paymentData.metadata?.customer_email || '',
@@ -41,23 +74,22 @@ class PayoneService {
             logger.info(`[Payone] Creating invoice for Order #${paymentData.orderId}`);
 
             const jsonStr = JSON.stringify(invoicesData);
+            const requestBody = 'invoices=' + encodeURIComponent(jsonStr);
 
-            // Use URLSearchParams - tested and confirmed working (Method C)
-            const params = new URLSearchParams();
-            params.set('invoices', jsonStr);
+            logger.info(`[Payone] Request body length: ${requestBody.length}`);
 
-            const response = await axios.post(`${this.baseUrl}/createInvoice`, params);
+            const responseData = await this._post(`${this.baseUrl}/createInvoice`, requestBody);
 
-            logger.info('[Payone] Response: ' + JSON.stringify(response.data));
+            logger.info('[Payone] Response: ' + JSON.stringify(responseData));
 
             // Check for API-level error
-            if (response.data && response.data.Error) {
-                throw new Error(`Payone Error ${response.data.Error}: ${response.data.ErrorMessage}`);
+            if (responseData && responseData.Error) {
+                throw new Error(`Payone Error ${responseData.Error}: ${responseData.ErrorMessage}`);
             }
 
             // Extract payment link from response
-            if (response.data && response.data.invoicesDetails && response.data.invoicesDetails.length > 0) {
-                const invoiceResult = response.data.invoicesDetails[0];
+            if (responseData && responseData.invoicesDetails && responseData.invoicesDetails.length > 0) {
+                const invoiceResult = responseData.invoicesDetails[0];
                 return {
                     id: invoiceResult.invoiceID || paymentData.orderId,
                     url: invoiceResult.paymentLink,
@@ -66,10 +98,10 @@ class PayoneService {
             }
 
             // Fallback
-            return response.data;
+            return responseData;
 
         } catch (error) {
-            const errMsg = error.response?.data?.ErrorMessage || error.message;
+            const errMsg = error.message || 'Unknown error';
             logger.error('[Payone] Create Invoice Error:', errMsg);
             throw new ApiError(500, 'Failed to create Payone invoice: ' + errMsg);
         }
