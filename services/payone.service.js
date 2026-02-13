@@ -74,7 +74,8 @@ class PayoneService {
             logger.info(`[Payone] Creating invoice for Order #${paymentData.orderId}`);
 
             const jsonStr = JSON.stringify(invoicesData);
-            const requestBody = 'invoices=' + encodeURIComponent(jsonStr);
+            // Payone requires RAW JSON (no URL encoding) - tested & confirmed
+            const requestBody = 'invoices=' + jsonStr;
 
             logger.info(`[Payone] Request body length: ${requestBody.length}`);
 
