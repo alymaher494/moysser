@@ -53,20 +53,25 @@ class PayoneService {
             throw new InternalServerError('Payone credentials (MERCHANT_ID or AUTH_TOKEN) are missing.');
         }
 
-        // Sanitize text fields to ASCII-only (remove Arabic/special chars that break form encoding)
-        const safeName = (paymentData.metadata?.customer_name || 'Guest').replace(/[^\x20-\x7E]/g, '');
-        const safeDesc = `Order ${paymentData.orderId}`;
+        // Sanitize text fields strictly to avoid breaking the raw form-data body
+        // Must remove '&' and '=' because they are special characters in x-www-form-urlencoded
+        // and we cannot use standard URL encoding for the *entire* body per Payone requirements.
+        const unsafeChars = /[^a-zA-Z0-9\s\-\._@]/g;
+
+        const safeName = (paymentData.metadata?.customer_name || 'Guest').replace(unsafeChars, '');
+        const safeDesc = (`Order ${paymentData.orderId}`).replace(unsafeChars, '');
+        const safeEmail = (paymentData.metadata?.customer_email || '').replace(/[^a-zA-Z0-9@\.\-_]/g, '');
 
         const invoicesData = {
             merchantID: this.merchantId,
             authenticationToken: this.authToken,
             invoicesDetails: [{
-                invoiceID: String(paymentData.orderId) + '-' + Date.now(),
+                invoiceID: String(paymentData.orderId).replace(unsafeChars, '') + '-' + Date.now(),
                 amount: String(paymentData.amount),
                 currency: '682',
                 paymentDescription: safeDesc,
                 customerID: safeName || 'Guest',
-                customerEmailAddress: paymentData.metadata?.customer_email || '',
+                customerEmailAddress: safeEmail,
                 language: 'ar',
                 expiryperiod: '1D',
                 notifyMe: 'no',
