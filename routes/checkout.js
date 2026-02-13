@@ -89,7 +89,6 @@ router.get('/:gateway/:orderId', async (req, res) => {
                 <div class="error-container">
                     <h1>حدث خطأ أثناء تجهيز الدفع (${gateway})</h1>
                     <p>${error.message || 'يرجى المحاولة مرة أخرى لاحقاً'}</p>
-                    <a href="/">العودة للرئيسية</a>
                 </div>
             </body>
             </html>

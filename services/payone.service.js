@@ -22,7 +22,7 @@ class PayoneService {
         const payload = {
             merchantId: this.merchantId,
             token: this.authToken,
-            invoice: {
+            invoices: [{
                 invoiceId: paymentData.orderId, // Using Order ID as Invoice ID
                 amount: paymentData.amount, // Payone usually expects standard float (e.g. 10.50) not Halalas, need to check
                 currency: paymentData.currency,
@@ -31,7 +31,7 @@ class PayoneService {
                 successUrl: `${paymentData.callback_url}&status=paid`,
                 errorUrl: `${paymentData.callback_url}&status=failed`,
                 backUrl: `${paymentData.callback_url}&status=cancelled`
-            },
+            }],
             customer: {
                 customerId: paymentData.metadata?.customer_id || 'guest',
                 email: paymentData.metadata?.customer_email,
