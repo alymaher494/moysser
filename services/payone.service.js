@@ -65,7 +65,8 @@ class PayoneService {
 
         } catch (error) {
             logger.error('[Payone] Create Invoice Error:', error.response?.data || error.message);
-            throw new ApiError(500, 'Failed to create Payone invoice');
+            console.error('[Payone] Full Error Details:', JSON.stringify(error.response?.data, null, 2));
+            throw new ApiError(500, 'Failed to create Payone invoice: ' + (error.response?.data?.errorMessage || error.message));
         }
     }
 }
