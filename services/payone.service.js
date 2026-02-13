@@ -10,10 +10,11 @@ class PayoneService {
 
     /**
      * Create an invoice link for the customer.
-     * V7 FIXES:
-     * 1. Currency: Trying "SAR" (Alpha) instead of "682" (Numeric). Logic error might be mismatched currency format.
-     * 2. Amount: Keeping "X.00" format because it passed JSON validation (unlike Integer/Minor units).
-     * 3. Case Sensitivity: "yes" instead of "Yes" (Docs sample uses lowercase 'yes' in some places).
+     * V8 FIXES:
+     * 1. Amount: Converting to Minor Units (Halalas/Cents) -> "500" (for 5.00 SAR).
+     * 2. Currency: "SAR" (Alpha code).
+     * 3. Hypothesis: "Invalid JSON" (00017) with integer amounts might have been due to missing fields or other noise. Now we have a complete payload.
+     *    "Invalid Amount" (00004) with "500.00" suggests decimals are strictly forbidden for SAR logic, even if schema accepts the format.
      */
     async createInvoice(paymentData) {
         if (!this.merchantId || !this.authToken) {
@@ -23,10 +24,10 @@ class PayoneService {
         const safeValidationDesc = `Order ${paymentData.orderId}`;
         const cleanToken = (this.authToken || '').replace(/\s+/g, '');
 
-        // V7: Amount - Strict 2 decimal places (Passed JSON check).
-        const amountString = Number(paymentData.amount).toFixed(2);
+        // V8: Amount - Minor Units (Integers). 
+        // e.g. 5.00 => "500"
+        const amountMinor = Math.round(Number(paymentData.amount) * 100).toString();
 
-        // V7: Shorten Invoice ID
         const shortTimestamp = String(Date.now()).slice(-5);
         const uniqueInvoiceId = `${paymentData.orderId}-${shortTimestamp}`;
 
@@ -34,25 +35,25 @@ class PayoneService {
             merchantID: this.merchantId,
             authenticationToken: cleanToken,
             invoicesDetails: [{
-                // renderMode removed (caused noise)
+                renderMode: 'test',
                 invoiceID: uniqueInvoiceId,
-                amount: amountString,
-                currency: 'SAR', // V7: TRYING ALPHA CODE "SAR" (Common fix for 'Invalid Amount' if numeric 682 isn't mapped)
+                amount: amountMinor, // "500"
+                currency: 'SAR',     // "SAR"
                 paymentDescription: safeValidationDesc,
                 customerID: 'Guest',
                 customerEmailAddress: 'customer@moysser-app.com',
                 language: 'ar',
                 expiryperiod: '1D',
                 customerMobileNumber: '00966500000000',
-                notifyMe: 'yes', // Lowercase per sample?
-                generateQRCode: 'yes' // Lowercase per sample?
+                notifyMe: 'yes',
+                generateQRCode: 'yes'
             }]
         };
 
         const jsonStr = JSON.stringify(invoicesData);
 
         try {
-            logger.info(`[Payone] [FIXED V7] Request: ${amountString} SAR (Alpha), ID: ${uniqueInvoiceId}`);
+            logger.info(`[Payone] [FIXED V8] Request: ${amountMinor} (Minor Units) SAR, ID: ${uniqueInvoiceId}`);
 
             const params = new URLSearchParams();
             params.set('invoices', jsonStr);
