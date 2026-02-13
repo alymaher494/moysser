@@ -11,7 +11,7 @@ class PayoneService {
     /**
      * Create an invoice link for the customer.
      * Uses Node.js native fetch with URLSearchParams.
-     * CONFIRMED WORKING METHOD + STRICT DATA FORMATTING (V3)
+     * CONFIRMED WORKING METHOD + STRICT DATA FORMATTING (V4 - AMOUNT MINOR UNITS)
      */
     async createInvoice(paymentData) {
         if (!this.merchantId || !this.authToken) {
@@ -22,14 +22,14 @@ class PayoneService {
         const safeValidationDesc = `Order ${paymentData.orderId}`;
 
         // V3: Clean token strictly (remove ALL spaces, not just trim)
-        // User email showed "ZGI... Q0" which has a space inside.
         const cleanToken = (this.authToken || '').replace(/\s+/g, '');
 
-        // V3: Format amount strictly to 2 decimal places (e.g. "10.00")
-        const formattedAmount = Number(paymentData.amount).toFixed(2);
+        // V4: Amount format - Payone usually requires minor units (e.g. 100 = 1.00 SAR) and INTEGER string.
+        // The error "Invalid Amount" for "2.00" confirms decimals are NOT allowed.
+        // We convert to Minor Units (Halalas): 2.00 -> 200
+        const amountMinor = Math.round(Number(paymentData.amount) * 100).toString();
 
         // V3: Shorten Invoice ID to avoid hitting typical gateway limits (20 chars)
-        // Current: OrderID (9) + dash (1) + short timestamp (5) = 15 chars. Perfectly safe.
         const shortTimestamp = String(Date.now()).slice(-5);
         const uniqueInvoiceId = `${paymentData.orderId}-${shortTimestamp}`;
 
@@ -39,7 +39,7 @@ class PayoneService {
             invoicesDetails: [{
                 renderMode: 'test',
                 invoiceID: uniqueInvoiceId,
-                amount: formattedAmount,
+                amount: amountMinor,
                 currency: '682',
                 paymentDescription: safeValidationDesc,
                 customerID: 'Guest',
@@ -55,7 +55,7 @@ class PayoneService {
         let lastError = null;
 
         try {
-            logger.info(`[Payone] [FIXED V3] Sending request for Order #${paymentData.orderId}`);
+            logger.info(`[Payone] [FIXED V4] Sending request for Order #${paymentData.orderId} Amount: ${amountMinor}`);
 
             // Use URLSearchParams which handles encoding consistently across environments
             const params = new URLSearchParams();
