@@ -15,7 +15,7 @@ Ecwid.OnPageLoaded.add(function (page) {
         console.log("Order Placed: " + orderId);
 
         // Your Middleware URL (UPDATE THIS AFTER DEPLOYMENT)
-        var API_BASE_URL = 'https://YOUR_APP_URL.com';
+        var API_BASE_URL = 'https://moysser.vercel.app';
 
         // 1. Fetch the payment method name from our backend
         // We use our backend because getting payment method name from simple 'page' object 

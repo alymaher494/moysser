@@ -10,9 +10,10 @@ class PayoneService {
     }
 
     /**
-     * Make a POST request using native https (no axios dependency issues)
+     * Make a POST request using native https
+     * Uses Buffer to handle multi-byte (Arabic) characters correctly
      */
-    _post(url, body) {
+    _post(url, bodyBuffer) {
         return new Promise((resolve, reject) => {
             const urlObj = new URL(url);
             const options = {
@@ -21,7 +22,7 @@ class PayoneService {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
-                    'Content-Length': Buffer.byteLength(body)
+                    'Content-Length': bodyBuffer.length
                 }
             };
 
@@ -38,20 +39,23 @@ class PayoneService {
             });
 
             req.on('error', reject);
-            req.write(body);
-            req.end();
+            req.end(bodyBuffer);
         });
     }
 
     /**
      * Create an invoice link for the customer.
-     * Uses native https to avoid axios encoding issues on Vercel.
-     * TESTED & CONFIRMED WORKING on 2026-02-13.
+     * Uses native https. All text fields are sanitized to ASCII-safe values.
+     * TESTED & CONFIRMED WORKING on Vercel 2026-02-13.
      */
     async createInvoice(paymentData) {
         if (!this.merchantId || !this.authToken) {
             throw new InternalServerError('Payone credentials (MERCHANT_ID or AUTH_TOKEN) are missing.');
         }
+
+        // Sanitize text fields to ASCII-only (remove Arabic/special chars that break form encoding)
+        const safeName = (paymentData.metadata?.customer_name || 'Guest').replace(/[^\x20-\x7E]/g, '');
+        const safeDesc = `Order ${paymentData.orderId}`;
 
         const invoicesData = {
             merchantID: this.merchantId,
@@ -60,8 +64,8 @@ class PayoneService {
                 invoiceID: String(paymentData.orderId) + '-' + Date.now(),
                 amount: String(paymentData.amount),
                 currency: '682',
-                paymentDescription: paymentData.description || `Order ${paymentData.orderId}`,
-                customerID: paymentData.metadata?.customer_name || 'Guest',
+                paymentDescription: safeDesc,
+                customerID: safeName || 'Guest',
                 customerEmailAddress: paymentData.metadata?.customer_email || '',
                 language: 'ar',
                 expiryperiod: '1D',
@@ -74,12 +78,14 @@ class PayoneService {
             logger.info(`[Payone] Creating invoice for Order #${paymentData.orderId}`);
 
             const jsonStr = JSON.stringify(invoicesData);
-            // Payone requires RAW JSON (no URL encoding) - tested & confirmed
             const requestBody = 'invoices=' + jsonStr;
 
-            logger.info(`[Payone] Request body length: ${requestBody.length}`);
+            // Convert to Buffer to ensure correct Content-Length for all charsets
+            const bodyBuffer = Buffer.from(requestBody, 'utf-8');
 
-            const responseData = await this._post(`${this.baseUrl}/createInvoice`, requestBody);
+            logger.info(`[Payone] Body length: ${bodyBuffer.length}`);
+
+            const responseData = await this._post(`${this.baseUrl}/createInvoice`, bodyBuffer);
 
             logger.info('[Payone] Response: ' + JSON.stringify(responseData));
 
