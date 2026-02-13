@@ -18,7 +18,7 @@ const getPaymentService = (gateway) => {
             const apiKey = process.env.MOYASAR_API_KEY_LIVE || process.env.MOYASAR_API_KEY_TEST;
             return new MoyasarService(apiKey);
         case 'payone':
-            return new PayoneService(); // Payone uses env vars internally in this version
+            return new PayoneService();
         case 'noon':
             return new NoonService();
         default:
@@ -27,175 +27,91 @@ const getPaymentService = (gateway) => {
 };
 
 /**
- * Checkout Flow Routes
+ * Main Checkout Flow
+ * Redirects user from Ecwid to the appropriate Payment Gateway
  */
-
-// Universal Landing page for checkout redirection
-// Route: /checkout/:gateway/:orderId
 router.get('/:gateway/:orderId', async (req, res) => {
     const { gateway, orderId } = req.params;
 
     try {
-        logger.info(`Processing ${gateway} checkout for Order #${orderId}`);
+        logger.info(`[Checkout] Starting ${gateway} for Order #${orderId}`);
 
-        // 1. Get order from Ecwid
+        // 1. Fetch Order
         const ecwid = getEcwidService();
         const order = await ecwid.getOrder(orderId);
 
-        // 2. Map Ecwid order to Payment data (Generic mapping)
+        // 2. Map and Setup Callback
         const paymentData = mapEcwidOrderToPayment(order);
-
-        // 3. Add callback URL dynamically
         const protocol = req.headers['x-forwarded-proto'] || req.protocol;
         const host = req.get('host');
-        // Callback needs to know which gateway to verify against
         paymentData.callback_url = `${protocol}://${host}/api/payments/callback/${gateway}?orderId=${orderId}`;
 
-        // 4. Initialize the selected Gateway Service
+        // 3. Process Gateway
         const paymentService = getPaymentService(gateway);
-
-        let redirectUrl;
-
-        // 5. Create Invoice/Payment based on gateway
         const invoice = await paymentService.createInvoice(paymentData);
-        redirectUrl = invoice.url;
 
-        if (!redirectUrl) {
-            throw new Error('Failed to generate payment URL. Response: ' + JSON.stringify(invoice));
+        if (!invoice.url) {
+            throw new Error('Payment gateway failed to provide a redirect URL.');
         }
 
-        // 6. Redirect user
-        logger.info(`Redirecting user to ${gateway} Invoice: ${redirectUrl}`);
-        return res.redirect(redirectUrl);
+        // 4. Redirect
+        logger.info(`[Checkout] Redirecting to: ${invoice.url}`);
+        return res.redirect(invoice.url);
 
     } catch (error) {
-        logger.error(`${gateway} Checkout error for Order #${orderId}:`, error);
-
-        res.status(500).send(`
-            <!DOCTYPE html>
-            <html lang="ar" dir="rtl">
-            <head>
-                <meta charset="UTF-8">
-                <title>خطأ في التجهيز</title>
-                <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
-                <style>
-                    body { font-family: 'Tajawal', sans-serif; background-color: #0f172a; color: #f8fafc; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; text-align: center; }
-                    .error-container { background: rgba(255, 255, 255, 0.05); padding: 2rem; border-radius: 16px; border: 1px solid rgba(239, 68, 68, 0.2); }
-                    h1 { color: #ef4444; }
-                    a { color: #2563eb; text-decoration: none; margin-top: 1rem; display: block; }
-                </style>
-            </head>
-            <body>
-                <div class="error-container">
-                    <h1>حدث خطأ أثناء تجهيز الدفع (${gateway}) <small style="font-size:0.5em; opacity:0.5;">v:fixed-api-v10</small></h1>
-                    <div style="direction: ltr; text-align: left; background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 8px; margin-top: 1rem; font-family: monospace; font-size: 0.9em;">
-                        ${error.message}
-                    </div>
-                </div>
-            </body>
-            </html>
-        `);
+        logger.error(`[Checkout] Error (${gateway}):`, error.message);
+        return renderErrorPage(res, gateway, error.message);
     }
 });
 
-// TEMPORARY DEBUG: Test Payone API directly from Vercel
-router.get('/debug-payone', async (req, res) => {
-    const https = require('https');
-
-    const invoicesData = {
-        merchantID: process.env.PAYONE_MERCHANT_ID || 'NOT_SET',
-        authenticationToken: process.env.PAYONE_AUTH_TOKEN || 'NOT_SET',
-        invoicesDetails: [{
-            invoiceID: 'DBG' + Date.now(),
-            amount: '1',
-            currency: '682',
-            paymentDescription: 'Debug Test',
-            customerID: 'DebugUser',
-            customerEmailAddress: 'debug@test.com',
-            language: 'en',
-            expiryperiod: '1D',
-            notifyMe: 'no',
-            generateQRCode: 'no'
-        }]
-    };
-
-    const jsonStr = JSON.stringify(invoicesData);
-    const baseUrl = process.env.PAYONE_BASE_URL || 'https://smartlinkdb-test.payone.io/URL2PayAdminWeb/rest/InvoicesService';
-    const apiUrl = baseUrl + '/createInvoice';
-    const results = {};
-
-    // Method 1: fetch with raw body
-    try {
-        const body1 = 'invoices=' + jsonStr;
-        const r1 = await fetch(apiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: body1
-        });
-        results.fetch_raw = await r1.text();
-    } catch (e) {
-        results.fetch_raw_err = e.message;
-    }
-
-    // Method 2: fetch with URLSearchParams
-    try {
-        const params = new URLSearchParams();
-        params.set('invoices', jsonStr);
-        const r2 = await fetch(apiUrl, {
-            method: 'POST',
-            body: params
-        });
-        results.fetch_urlsearchparams = await r2.text();
-    } catch (e) {
-        results.fetch_urlsearchparams_err = e.message;
-    }
-
-    // Method 3: native https  
-    try {
-        const body3 = 'invoices=' + jsonStr;
-        const urlObj = new URL(apiUrl);
-        const r3 = await new Promise((resolve, reject) => {
-            const options = {
-                hostname: urlObj.hostname,
-                path: urlObj.pathname,
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'Content-Length': Buffer.byteLength(body3)
-                }
-            };
-            const r = https.request(options, (response) => {
-                let data = '';
-                response.on('data', chunk => data += chunk);
-                response.on('end', () => resolve(data));
-            });
-            r.on('error', reject);
-            r.write(body3);
-            r.end();
-        });
-        results.native_https = r3;
-    } catch (e) {
-        results.native_https_err = e.message;
-    }
-
-    results.nodeVersion = process.version;
-    results.apiUrl = apiUrl;
-    results.jsonLength = jsonStr.length;
-
-    res.json(results);
+/**
+ * Handle success and failure callbacks
+ */
+router.get('/payment/success', (req, res) => {
+    res.send('<h1>✅ تم الدفع بنجاح!</h1><p>شكراً لثقتك بنا. ستصلك رسالة تأكيد قريباً.</p>');
 });
 
-// Backward compatibility for old route (defaults to Moyasar)
+router.get('/payment/failure', (req, res) => {
+    res.send('<h1>❌ فشلت عملية الدفع</h1><p>يرجى المحاولة مرة أخرى أو اختيار وسيلة دفع مختلفة.</p>');
+});
+
+// Backward compatibility (default to Moyasar)
 router.get('/:orderId', (req, res) => {
     res.redirect(`/checkout/moyasar/${req.params.orderId}`);
 });
 
-router.get('/payment/success', (req, res) => {
-    res.send('<h1>تم الدفع بنجاح!</h1><p>شكراً لثقتك بنا.</p>');
-});
-
-router.get('/payment/failure', (req, res) => {
-    res.send('<h1>فشلت عملية الدفع</h1><p>يرجى المحاولة مرة أخرى.</p>');
-});
+/**
+ * Professional Error UI
+ */
+function renderErrorPage(res, gateway, message) {
+    res.status(500).send(`
+        <!DOCTYPE html>
+        <html lang="ar" dir="rtl">
+        <head>
+            <meta charset="UTF-8">
+            <title>مشكلة في الدفع</title>
+            <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+            <style>
+                body { font-family: 'Tajawal', sans-serif; background-color: #0f172a; color: #f8fafc; height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; }
+                .card { background: #1e293b; padding: 2rem; border-radius: 12px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); max-width: 500px; text-align: center; border: 1px solid #334155; }
+                h1 { color: #f87171; margin-bottom: 1rem; }
+                p { color: #94a3b8; line-height: 1.6; }
+                .retry-btn { display: inline-block; margin-top: 1.5rem; background: #334155; color: white; text-decoration: none; padding: 0.5rem 1.5rem; border-radius: 6px; transition: 0.2s; }
+                .retry-btn:hover { background: #475569; }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <h1>عذراً، حدث خطأ!</h1>
+                <p>واجهنا مشكلة أثناء تحويلك لبوابة الدفع (${gateway}).</p>
+                <div style="font-family: monospace; background: #000; padding: 10px; border-radius: 4px; font-size: 0.8em; margin-top: 10px; color: #ef4444;">
+                    ${message}
+                </div>
+                <a href="#" onclick="window.location.reload()" class="retry-btn">إعادة المحاولة</a>
+            </div>
+        </body>
+        </html>
+    `);
+}
 
 module.exports = router;
