@@ -61,7 +61,7 @@ router.get('/:gateway/:orderId', async (req, res) => {
         redirectUrl = invoice.url;
 
         if (!redirectUrl) {
-            throw new Error('Failed to generate payment URL from gateway');
+            throw new Error('Failed to generate payment URL. Response: ' + JSON.stringify(invoice));
         }
 
         // 6. Redirect user
