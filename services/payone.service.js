@@ -10,23 +10,23 @@ class PayoneService {
 
     /**
      * Create an invoice link for the customer.
-     * CONFIRMED WORKING METHOD + V6 SCHEMA ALIGNMENT
+     * V7 FIXES:
+     * 1. Currency: Trying "SAR" (Alpha) instead of "682" (Numeric). Logic error might be mismatched currency format.
+     * 2. Amount: Keeping "X.00" format because it passed JSON validation (unlike Integer/Minor units).
+     * 3. Case Sensitivity: "yes" instead of "Yes" (Docs sample uses lowercase 'yes' in some places).
      */
     async createInvoice(paymentData) {
         if (!this.merchantId || !this.authToken) {
             throw new InternalServerError('Payone credentials (MERCHANT_ID or AUTH_TOKEN) are missing.');
         }
 
-        // SAFE MODE
         const safeValidationDesc = `Order ${paymentData.orderId}`;
         const cleanToken = (this.authToken || '').replace(/\s+/g, '');
 
-        // V6: Amount - Must have decimals! "2.00" passed JSON check, "2" failed.
-        // We will try "10.00" to ensure we are above any potential minimum limits.
-        // We force 2 decimal places.
-        const amountString = Number(paymentData.amount).toFixed(2); // "2.00" or "10.00"
+        // V7: Amount - Strict 2 decimal places (Passed JSON check).
+        const amountString = Number(paymentData.amount).toFixed(2);
 
-        // V6: Shorten Invoice ID
+        // V7: Shorten Invoice ID
         const shortTimestamp = String(Date.now()).slice(-5);
         const uniqueInvoiceId = `${paymentData.orderId}-${shortTimestamp}`;
 
@@ -34,26 +34,25 @@ class PayoneService {
             merchantID: this.merchantId,
             authenticationToken: cleanToken,
             invoicesDetails: [{
-                renderMode: 'test',
+                // renderMode removed (caused noise)
                 invoiceID: uniqueInvoiceId,
-                amount: amountString, // "10.00"
-                currency: '682',
+                amount: amountString,
+                currency: 'SAR', // V7: TRYING ALPHA CODE "SAR" (Common fix for 'Invalid Amount' if numeric 682 isn't mapped)
                 paymentDescription: safeValidationDesc,
                 customerID: 'Guest',
                 customerEmailAddress: 'customer@moysser-app.com',
                 language: 'ar',
                 expiryperiod: '1D',
-                // V6: Add Mobile (from sample) and Capitalize Yes/No (from sample)
                 customerMobileNumber: '00966500000000',
-                notifyMe: 'Yes',
-                generateQRCode: 'Yes'
+                notifyMe: 'yes', // Lowercase per sample?
+                generateQRCode: 'yes' // Lowercase per sample?
             }]
         };
 
         const jsonStr = JSON.stringify(invoicesData);
 
         try {
-            logger.info(`[Payone] [FIXED V6] Request: ${amountString} SAR, ID: ${uniqueInvoiceId}`);
+            logger.info(`[Payone] [FIXED V7] Request: ${amountString} SAR (Alpha), ID: ${uniqueInvoiceId}`);
 
             const params = new URLSearchParams();
             params.set('invoices', jsonStr);
@@ -75,13 +74,11 @@ class PayoneService {
             try {
                 responseData = JSON.parse(textResponse);
             } catch (e) {
-                // Return descriptive error for HTML responses (500/404)
                 throw new Error(`Invalid non-JSON response: ${textResponse.substring(0, 100)}`);
             }
 
             logger.info('[Payone] Response: ' + JSON.stringify(responseData));
 
-            // Check API-level errors
             if (responseData.Error) {
                 const maskedPayload = jsonStr.replace(cleanToken, '***TOKEN***');
                 throw new Error(`[API] Payone Error ${responseData.Error}: ${responseData.ErrorMessage} || PAYLOAD: ${maskedPayload}`);
