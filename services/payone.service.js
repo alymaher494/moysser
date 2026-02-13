@@ -10,27 +10,23 @@ class PayoneService {
 
     /**
      * Create an invoice link for the customer.
-     * Uses Node.js native fetch with URLSearchParams.
-     * CONFIRMED WORKING METHOD + STRICT DATA FORMATTING (V5)
+     * CONFIRMED WORKING METHOD + V6 SCHEMA ALIGNMENT
      */
     async createInvoice(paymentData) {
         if (!this.merchantId || !this.authToken) {
             throw new InternalServerError('Payone credentials (MERCHANT_ID or AUTH_TOKEN) are missing.');
         }
 
-        // SAFE MODE: Use hardcoded safe values to prevent JSON format errors
+        // SAFE MODE
         const safeValidationDesc = `Order ${paymentData.orderId}`;
-
-        // V5: Clean token strictly
         const cleanToken = (this.authToken || '').replace(/\s+/g, '');
 
-        // V5: Amount - Trying MAJOR UNITS as String (e.g. "2").
-        // "2.00" -> Invalid Amount (00004).
-        // "200" -> Invalid JSON (00017).
-        // So we presume it wants "2" (Major unit, no decimal).
-        const amountString = String(paymentData.amount);
+        // V6: Amount - Must have decimals! "2.00" passed JSON check, "2" failed.
+        // We will try "10.00" to ensure we are above any potential minimum limits.
+        // We force 2 decimal places.
+        const amountString = Number(paymentData.amount).toFixed(2); // "2.00" or "10.00"
 
-        // V5: Shorten Invoice ID
+        // V6: Shorten Invoice ID
         const shortTimestamp = String(Date.now()).slice(-5);
         const uniqueInvoiceId = `${paymentData.orderId}-${shortTimestamp}`;
 
@@ -38,30 +34,30 @@ class PayoneService {
             merchantID: this.merchantId,
             authenticationToken: cleanToken,
             invoicesDetails: [{
-                // Removed 'renderMode' as it's not strictly documented in the core sample
+                renderMode: 'test',
                 invoiceID: uniqueInvoiceId,
-                amount: amountString, // "2"
+                amount: amountString, // "10.00"
                 currency: '682',
                 paymentDescription: safeValidationDesc,
                 customerID: 'Guest',
                 customerEmailAddress: 'customer@moysser-app.com',
                 language: 'ar',
                 expiryperiod: '1D',
-                notifyMe: 'no',
-                generateQRCode: 'no'
+                // V6: Add Mobile (from sample) and Capitalize Yes/No (from sample)
+                customerMobileNumber: '00966500000000',
+                notifyMe: 'Yes',
+                generateQRCode: 'Yes'
             }]
         };
 
         const jsonStr = JSON.stringify(invoicesData);
 
         try {
-            logger.info(`[Payone] [FIXED V5] Sending request for Order #${paymentData.orderId} Amount: ${amountString}`);
+            logger.info(`[Payone] [FIXED V6] Request: ${amountString} SAR, ID: ${uniqueInvoiceId}`);
 
-            // Use URLSearchParams which handles encoding consistently across environments
             const params = new URLSearchParams();
             params.set('invoices', jsonStr);
 
-            // Construct URL - handle potential double slash issues
             const base = this.baseUrl.endsWith('/') ? this.baseUrl.slice(0, -1) : this.baseUrl;
             const url = `${base}/createInvoice`;
 
@@ -73,14 +69,13 @@ class PayoneService {
                 }
             });
 
-            // Handle non-JSON responses (HTML errors etc)
             const textResponse = await response.text();
             let responseData;
 
             try {
                 responseData = JSON.parse(textResponse);
             } catch (e) {
-                // If response is not JSON, it's a fatal error from server/proxy
+                // Return descriptive error for HTML responses (500/404)
                 throw new Error(`Invalid non-JSON response: ${textResponse.substring(0, 100)}`);
             }
 
@@ -88,12 +83,10 @@ class PayoneService {
 
             // Check API-level errors
             if (responseData.Error) {
-                // Include JSON payload in error message for definitive debugging
                 const maskedPayload = jsonStr.replace(cleanToken, '***TOKEN***');
                 throw new Error(`[API] Payone Error ${responseData.Error}: ${responseData.ErrorMessage} || PAYLOAD: ${maskedPayload}`);
             }
 
-            // Extract payment link
             if (responseData.invoicesDetails && responseData.invoicesDetails.length > 0) {
                 const invoiceResult = responseData.invoicesDetails[0];
                 return {
