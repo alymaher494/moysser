@@ -10,10 +10,11 @@ class PayoneService {
     }
 
     /**
-     * Create an invoice link for the customer
-     * Payone SmartLink expects data as a form parameter named "invoices"
-     * containing a JSON string with merchantID, authenticationToken, and invoicesDetails array.
-     * @param {Object} paymentData
+     * Create an invoice link for the customer.
+     * Based on Payone SmartLink official Java sample code:
+     *   The body is sent as: invoices=<RAW_JSON_STRING>
+     *   Content-Type: application/x-www-form-urlencoded
+     *   The JSON must NOT be URL-encoded.
      */
     async createInvoice(paymentData) {
         if (!this.merchantId || !this.authToken) {
@@ -25,10 +26,10 @@ class PayoneService {
             merchantID: this.merchantId,
             authenticationToken: this.authToken,
             invoicesDetails: [{
-                invoiceID: paymentData.orderId,
+                invoiceID: String(paymentData.orderId),
                 amount: String(paymentData.amount),
-                currency: '682', // SAR ISO 4217 numeric code
-                paymentDescription: paymentData.description || `Order #${paymentData.orderId}`,
+                currency: '682', // SAR = ISO 4217 numeric code 682
+                paymentDescription: paymentData.description || `Order ${paymentData.orderId}`,
                 customerID: paymentData.metadata?.customer_name || 'Guest',
                 customerEmailAddress: paymentData.metadata?.customer_email || '',
                 language: 'ar',
@@ -40,13 +41,14 @@ class PayoneService {
 
         try {
             logger.info(`[Payone] Creating invoice for Order #${paymentData.orderId}`);
-            logger.info(`[Payone] Payload: ${JSON.stringify(invoicesData)}`);
 
-            // Payone expects "invoices" as a form parameter (application/x-www-form-urlencoded)
-            const formData = new URLSearchParams();
-            formData.append('invoices', JSON.stringify(invoicesData));
+            // Per official Java sample: "invoices=" + jsonObject.toString()
+            // Sent as raw string body, NOT URL-encoded
+            const requestBody = 'invoices=' + JSON.stringify(invoicesData);
 
-            const response = await axios.post(`${this.baseUrl}/createInvoice`, formData.toString(), {
+            logger.info(`[Payone] Request Body: ${requestBody}`);
+
+            const response = await axios.post(`${this.baseUrl}/createInvoice`, requestBody, {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded'
                 }
@@ -55,7 +57,7 @@ class PayoneService {
             logger.info('[Payone] Raw Response: ' + JSON.stringify(response.data));
 
             // Extract payment link from response
-            // Response contains invoicesDetails array with paymentLink for each invoice
+            // Response: { invoicesDetails: [{ paymentLink: "...", invoiceID: "...", ... }] }
             if (response.data && response.data.invoicesDetails && response.data.invoicesDetails.length > 0) {
                 const invoiceResult = response.data.invoicesDetails[0];
                 return {
