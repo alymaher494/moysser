@@ -87,7 +87,7 @@ router.get('/:gateway/:orderId', async (req, res) => {
             </head>
             <body>
                 <div class="error-container">
-                    <h1>حدث خطأ أثناء تجهيز الدفع (${gateway})</h1>
+                    <h1>حدث خطأ أثناء تجهيز الدفع (${gateway}) <small style="font-size:0.5em; opacity:0.5;">v:fixed-api</small></h1>
                     <div style="direction: ltr; text-align: left; background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 8px; margin-top: 1rem; font-family: monospace; font-size: 0.9em;">
                         ${error.message}
                     </div>

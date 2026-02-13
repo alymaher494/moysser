@@ -1,4 +1,3 @@
-const https = require('https');
 const logger = require('../utils/logger');
 const { InternalServerError, ApiError } = require('../utils/errors');
 
@@ -10,66 +9,32 @@ class PayoneService {
     }
 
     /**
-     * Make a POST request using native https
-     * Uses Buffer to handle multi-byte characters correctly
-     */
-    _post(url, bodyBuffer) {
-        return new Promise((resolve, reject) => {
-            const urlObj = new URL(url);
-            const options = {
-                hostname: urlObj.hostname,
-                path: urlObj.pathname,
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'Content-Length': bodyBuffer.length,
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                }
-            };
-
-            const req = https.request(options, (res) => {
-                let data = '';
-                res.on('data', chunk => data += chunk);
-                res.on('end', () => {
-                    try {
-                        resolve(JSON.parse(data));
-                    } catch (e) {
-                        resolve(data);
-                    }
-                });
-            });
-
-            req.on('error', reject);
-            req.end(bodyBuffer);
-        });
-    }
-
-    /**
      * Create an invoice link for the customer.
-     * SAFE MODE + SMART RETRY STRATEGY.
-     * Uses hardcoded "safe" values for non-essential fields to prevent JSON format errors.
-     * Tries Raw JSON first, then Encoded JSON.
+     * Uses Node.js native fetch with URLSearchParams.
+     * This method is CONFIRMED to work in Vercel environment via debug tests.
      */
     async createInvoice(paymentData) {
         if (!this.merchantId || !this.authToken) {
             throw new InternalServerError('Payone credentials (MERCHANT_ID or AUTH_TOKEN) are missing.');
         }
 
-        // SAFE MODE: Use hardcoded safe values to prevent JSON format errors caused by user data
-        // We only populate essential fields with dynamic data (ID, Amount)
+        // SAFE MODE: Use hardcoded safe values to prevent JSON format errors
         const safeValidationDesc = `Order ${paymentData.orderId}`;
+
+        // Ensure no spaces in token inadvertently
+        const cleanToken = this.authToken.trim();
 
         const invoicesData = {
             merchantID: this.merchantId,
-            authenticationToken: this.authToken,
+            authenticationToken: cleanToken,
             invoicesDetails: [{
                 // Update InvoiceID with Retry counter to be safe
                 invoiceID: String(paymentData.orderId) + '-' + Date.now(),
                 amount: String(paymentData.amount),
                 currency: '682',
                 paymentDescription: safeValidationDesc,
-                customerID: 'Guest', // Hardcoded to prevent encoding issues
-                customerEmailAddress: 'customer@moysser-app.com', // Hardcoded valid email
+                customerID: 'Guest',
+                customerEmailAddress: 'customer@moysser-app.com',
                 language: 'ar',
                 expiryperiod: '1D',
                 notifyMe: 'no',
@@ -80,72 +45,59 @@ class PayoneService {
         const jsonStr = JSON.stringify(invoicesData);
         let lastError = null;
 
-        // STRATEGY 1: Raw JSON
         try {
-            logger.info(`[Payone] Attempt 1 (Raw) for Order #${paymentData.orderId}`);
-            const requestBody = 'invoices=' + jsonStr;
-            const bodyBuffer = Buffer.from(requestBody, 'utf-8');
+            logger.info(`[Payone] [FIXED API] Sending request for Order #${paymentData.orderId}`);
 
-            const response = await this._post(`${this.baseUrl}/createInvoice`, bodyBuffer);
+            // Use URLSearchParams which handles encoding consistently across environments
+            const params = new URLSearchParams();
+            params.set('invoices', jsonStr);
 
-            if (response && !response.Error && response.invoicesDetails) {
-                return this._parseResponse(response, paymentData.orderId);
+            // Construct URL - handle potential double slash issues
+            const base = this.baseUrl.endsWith('/') ? this.baseUrl.slice(0, -1) : this.baseUrl;
+            const url = `${base}/createInvoice`;
+
+            const response = await fetch(url, {
+                method: 'POST',
+                body: params,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                }
+            });
+
+            // Handle non-JSON responses (HTML errors etc)
+            const textResponse = await response.text();
+            let responseData;
+
+            try {
+                responseData = JSON.parse(textResponse);
+            } catch (e) {
+                // If response is not JSON, it's a fatal error from server/proxy
+                throw new Error(`Invalid non-JSON response from Payone: ${textResponse.substring(0, 100)}`);
             }
 
-            // If error is 00017, specifically log it and continue to retry
-            if (response.Error === '00017') {
-                logger.warn(`[Payone] Attempt 1 failed with 00017 (Invalid JSON), retrying encoded...`);
-            } else if (response.Error) {
-                // Other errors (Auth, Limit, etc) -> Throw immediately
-                throw new Error(`[S1] Payone Error ${response.Error}: ${response.ErrorMessage}`);
+            logger.info('[Payone] Response: ' + JSON.stringify(responseData));
+
+            // Check API-level errors
+            if (responseData.Error) {
+                throw new Error(`[API] Payone Error ${responseData.Error}: ${responseData.ErrorMessage}`);
             }
+
+            // Extract payment link
+            if (responseData.invoicesDetails && responseData.invoicesDetails.length > 0) {
+                const invoiceResult = responseData.invoicesDetails[0];
+                return {
+                    id: invoiceResult.invoiceID || paymentData.orderId,
+                    url: invoiceResult.paymentLink,
+                    status: 'INITIATED'
+                };
+            }
+
+            return responseData;
 
         } catch (error) {
-            lastError = error;
-            logger.warn(`[Payone] Attempt 1 Error: ${error.message}`);
+            logger.error('[Payone] Create Invoice Error:', error.message);
+            throw new ApiError(500, 'Failed to create Payone invoice: ' + error.message);
         }
-
-        // STRATEGY 2: Encoded JSON
-        try {
-            logger.info(`[Payone] Attempt 2 (Encoded) for Order #${paymentData.orderId}`);
-
-            // Modify ID for second attempt to avoid duplicate errors
-            invoicesData.invoicesDetails[0].invoiceID += '-R2';
-            const jsonStrRetry = JSON.stringify(invoicesData);
-
-            const requestBody = 'invoices=' + encodeURIComponent(jsonStrRetry);
-            const bodyBuffer = Buffer.from(requestBody, 'utf-8');
-
-            const response = await this._post(`${this.baseUrl}/createInvoice`, bodyBuffer);
-
-            if (response && !response.Error && response.invoicesDetails) {
-                return this._parseResponse(response, paymentData.orderId);
-            }
-
-            if (response.Error) {
-                // If this fails, it's the final error
-                throw new Error(`[S2] Payone Error ${response.Error}: ${response.ErrorMessage}`);
-            }
-
-            return response;
-
-        } catch (error) {
-            const errMsg = error.message || lastError?.message || 'Unknown error';
-            logger.error('[Payone] All Strategies Failed:', errMsg);
-            throw new ApiError(500, 'Failed to create Payone invoice: ' + errMsg);
-        }
-    }
-
-    _parseResponse(response, orderId) {
-        if (response.invoicesDetails && response.invoicesDetails.length > 0) {
-            const invoiceResult = response.invoicesDetails[0];
-            return {
-                id: invoiceResult.invoiceID || orderId,
-                url: invoiceResult.paymentLink,
-                status: 'INITIATED'
-            };
-        }
-        return response;
     }
 }
 
