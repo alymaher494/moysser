@@ -41,12 +41,13 @@ class PayoneService {
             logger.info(`[Payone] Creating invoice for Order #${paymentData.orderId}`);
 
             const jsonStr = JSON.stringify(invoicesData);
-            // MUST use encodeURIComponent - tested and confirmed working
-            const requestBody = 'invoices=' + encodeURIComponent(jsonStr);
 
-            const response = await axios.post(`${this.baseUrl}/createInvoice`, requestBody, {
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-            });
+            // Pass as object - axios serializes it correctly for form-urlencoded
+            // TESTED: this is the ONLY method that works correctly
+            const response = await axios.post(`${this.baseUrl}/createInvoice`,
+                { invoices: jsonStr },
+                { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+            );
 
             logger.info('[Payone] Response: ' + JSON.stringify(response.data));
 
