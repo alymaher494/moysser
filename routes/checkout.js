@@ -104,7 +104,7 @@ router.get('/debug-payone', async (req, res) => {
         merchantID: process.env.PAYONE_MERCHANT_ID || 'NOT_SET',
         authenticationToken: process.env.PAYONE_AUTH_TOKEN || 'NOT_SET',
         invoicesDetails: [{
-            invoiceID: 'DEBUG' + Date.now(),
+            invoiceID: 'DBG' + Date.now(),
             amount: '1',
             currency: '682',
             paymentDescription: 'Debug Test',
@@ -118,20 +118,48 @@ router.get('/debug-payone', async (req, res) => {
     };
 
     const jsonStr = JSON.stringify(invoicesData);
-    const body = 'invoices=' + jsonStr;
-
     const baseUrl = process.env.PAYONE_BASE_URL || 'https://smartlinkdb-test.payone.io/URL2PayAdminWeb/rest/InvoicesService';
+    const apiUrl = baseUrl + '/createInvoice';
+    const results = {};
 
+    // Method 1: fetch with raw body
     try {
-        const urlObj = new URL(baseUrl + '/createInvoice');
-        const result = await new Promise((resolve, reject) => {
+        const body1 = 'invoices=' + jsonStr;
+        const r1 = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body1
+        });
+        results.fetch_raw = await r1.text();
+    } catch (e) {
+        results.fetch_raw_err = e.message;
+    }
+
+    // Method 2: fetch with URLSearchParams
+    try {
+        const params = new URLSearchParams();
+        params.set('invoices', jsonStr);
+        const r2 = await fetch(apiUrl, {
+            method: 'POST',
+            body: params
+        });
+        results.fetch_urlsearchparams = await r2.text();
+    } catch (e) {
+        results.fetch_urlsearchparams_err = e.message;
+    }
+
+    // Method 3: native https  
+    try {
+        const body3 = 'invoices=' + jsonStr;
+        const urlObj = new URL(apiUrl);
+        const r3 = await new Promise((resolve, reject) => {
             const options = {
                 hostname: urlObj.hostname,
                 path: urlObj.pathname,
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
-                    'Content-Length': Buffer.byteLength(body)
+                    'Content-Length': Buffer.byteLength(body3)
                 }
             };
             const r = https.request(options, (response) => {
@@ -140,22 +168,19 @@ router.get('/debug-payone', async (req, res) => {
                 response.on('end', () => resolve(data));
             });
             r.on('error', reject);
-            r.write(body);
+            r.write(body3);
             r.end();
         });
-
-        res.json({
-            sentBody: body.substring(0, 200) + '...',
-            bodyLength: body.length,
-            bufferLength: Buffer.byteLength(body),
-            merchantIdSet: !!process.env.PAYONE_MERCHANT_ID,
-            authTokenSet: !!process.env.PAYONE_AUTH_TOKEN,
-            baseUrl: baseUrl,
-            rawResponse: result
-        });
+        results.native_https = r3;
     } catch (e) {
-        res.json({ error: e.message });
+        results.native_https_err = e.message;
     }
+
+    results.nodeVersion = process.version;
+    results.apiUrl = apiUrl;
+    results.jsonLength = jsonStr.length;
+
+    res.json(results);
 });
 
 // Backward compatibility for old route (defaults to Moyasar)
