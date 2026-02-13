@@ -11,7 +11,7 @@ class PayoneService {
     /**
      * Create an invoice link for the customer.
      * Uses Node.js native fetch with URLSearchParams.
-     * CONFIRMED WORKING METHOD + STRICT DATA FORMATTING (V4 - AMOUNT MINOR UNITS)
+     * CONFIRMED WORKING METHOD + STRICT DATA FORMATTING (V5)
      */
     async createInvoice(paymentData) {
         if (!this.merchantId || !this.authToken) {
@@ -21,15 +21,16 @@ class PayoneService {
         // SAFE MODE: Use hardcoded safe values to prevent JSON format errors
         const safeValidationDesc = `Order ${paymentData.orderId}`;
 
-        // V3: Clean token strictly (remove ALL spaces, not just trim)
+        // V5: Clean token strictly
         const cleanToken = (this.authToken || '').replace(/\s+/g, '');
 
-        // V4: Amount format - Payone usually requires minor units (e.g. 100 = 1.00 SAR) and INTEGER string.
-        // The error "Invalid Amount" for "2.00" confirms decimals are NOT allowed.
-        // We convert to Minor Units (Halalas): 2.00 -> 200
-        const amountMinor = Math.round(Number(paymentData.amount) * 100).toString();
+        // V5: Amount - Trying MAJOR UNITS as String (e.g. "2").
+        // "2.00" -> Invalid Amount (00004).
+        // "200" -> Invalid JSON (00017).
+        // So we presume it wants "2" (Major unit, no decimal).
+        const amountString = String(paymentData.amount);
 
-        // V3: Shorten Invoice ID to avoid hitting typical gateway limits (20 chars)
+        // V5: Shorten Invoice ID
         const shortTimestamp = String(Date.now()).slice(-5);
         const uniqueInvoiceId = `${paymentData.orderId}-${shortTimestamp}`;
 
@@ -37,9 +38,9 @@ class PayoneService {
             merchantID: this.merchantId,
             authenticationToken: cleanToken,
             invoicesDetails: [{
-                renderMode: 'test',
+                // Removed 'renderMode' as it's not strictly documented in the core sample
                 invoiceID: uniqueInvoiceId,
-                amount: amountMinor,
+                amount: amountString, // "2"
                 currency: '682',
                 paymentDescription: safeValidationDesc,
                 customerID: 'Guest',
@@ -52,10 +53,9 @@ class PayoneService {
         };
 
         const jsonStr = JSON.stringify(invoicesData);
-        let lastError = null;
 
         try {
-            logger.info(`[Payone] [FIXED V4] Sending request for Order #${paymentData.orderId} Amount: ${amountMinor}`);
+            logger.info(`[Payone] [FIXED V5] Sending request for Order #${paymentData.orderId} Amount: ${amountString}`);
 
             // Use URLSearchParams which handles encoding consistently across environments
             const params = new URLSearchParams();
@@ -88,7 +88,7 @@ class PayoneService {
 
             // Check API-level errors
             if (responseData.Error) {
-                // V3: Include JSON payload in error message for definitive debugging
+                // Include JSON payload in error message for definitive debugging
                 const maskedPayload = jsonStr.replace(cleanToken, '***TOKEN***');
                 throw new Error(`[API] Payone Error ${responseData.Error}: ${responseData.ErrorMessage} || PAYLOAD: ${maskedPayload}`);
             }
