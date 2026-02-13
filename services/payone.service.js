@@ -42,12 +42,11 @@ class PayoneService {
 
             const jsonStr = JSON.stringify(invoicesData);
 
-            // Pass as object - axios serializes it correctly for form-urlencoded
-            // TESTED: this is the ONLY method that works correctly
-            const response = await axios.post(`${this.baseUrl}/createInvoice`,
-                { invoices: jsonStr },
-                { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-            );
+            // Use URLSearchParams - tested and confirmed working (Method C)
+            const params = new URLSearchParams();
+            params.set('invoices', jsonStr);
+
+            const response = await axios.post(`${this.baseUrl}/createInvoice`, params);
 
             logger.info('[Payone] Response: ' + JSON.stringify(response.data));
 
