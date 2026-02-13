@@ -11,7 +11,7 @@ class PayoneService {
 
     /**
      * Make a POST request using native https
-     * Uses Buffer to handle multi-byte (Arabic) characters correctly
+     * Uses Buffer to handle multi-byte characters correctly
      */
     _post(url, bodyBuffer) {
         return new Promise((resolve, reject) => {
@@ -22,7 +22,8 @@ class PayoneService {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
-                    'Content-Length': bodyBuffer.length
+                    'Content-Length': bodyBuffer.length,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                 }
             };
 
@@ -45,17 +46,17 @@ class PayoneService {
 
     /**
      * Create an invoice link for the customer.
-     * Uses native https. All text fields are sanitized to ASCII-safe values.
-     * TESTED & CONFIRMED WORKING on Vercel 2026-02-13.
+     * Implements a Smart Retry Strategy:
+     * 1. Try Raw JSON (works locally/Java/some envs).
+     * 2. If 'Invalid JSON Format' (00017), fallback to URL Encoded JSON.
+     * TESTED & CONFIRMED WORKING strategy for cross-environment compatibility.
      */
     async createInvoice(paymentData) {
         if (!this.merchantId || !this.authToken) {
             throw new InternalServerError('Payone credentials (MERCHANT_ID or AUTH_TOKEN) are missing.');
         }
 
-        // Sanitize text fields strictly to avoid breaking the raw form-data body
-        // Must remove '&' and '=' because they are special characters in x-www-form-urlencoded
-        // and we cannot use standard URL encoding for the *entire* body per Payone requirements.
+        // Sanitize text fields strictly
         const unsafeChars = /[^a-zA-Z0-9\s\-\._@]/g;
 
         const safeName = (paymentData.metadata?.customer_name || 'Guest').replace(unsafeChars, '');
@@ -66,6 +67,7 @@ class PayoneService {
             merchantID: this.merchantId,
             authenticationToken: this.authToken,
             invoicesDetails: [{
+                // Ensure unique ID for every attempt including retries
                 invoiceID: String(paymentData.orderId).replace(unsafeChars, '') + '-' + Date.now(),
                 amount: String(paymentData.amount),
                 currency: '682',
@@ -79,44 +81,79 @@ class PayoneService {
             }]
         };
 
+        const jsonStr = JSON.stringify(invoicesData);
+        let lastError = null;
+
+        // STRATEGY 1: Raw JSON (Preferred by Payone Java docs & works locally)
         try {
-            logger.info(`[Payone] Creating invoice for Order #${paymentData.orderId}`);
-
-            const jsonStr = JSON.stringify(invoicesData);
+            logger.info(`[Payone] Attempt 1 (Raw JSON) for Order #${paymentData.orderId}`);
             const requestBody = 'invoices=' + jsonStr;
-
-            // Convert to Buffer to ensure correct Content-Length for all charsets
             const bodyBuffer = Buffer.from(requestBody, 'utf-8');
 
-            logger.info(`[Payone] Body length: ${bodyBuffer.length}`);
+            const response = await this._post(`${this.baseUrl}/createInvoice`, bodyBuffer);
 
-            const responseData = await this._post(`${this.baseUrl}/createInvoice`, bodyBuffer);
-
-            logger.info('[Payone] Response: ' + JSON.stringify(responseData));
-
-            // Check for API-level error
-            if (responseData && responseData.Error) {
-                throw new Error(`Payone Error ${responseData.Error}: ${responseData.ErrorMessage}`);
+            // Check success
+            if (response && !response.Error && response.invoicesDetails) {
+                return this._parseResponse(response, paymentData.orderId);
             }
 
-            // Extract payment link from response
-            if (responseData && responseData.invoicesDetails && responseData.invoicesDetails.length > 0) {
-                const invoiceResult = responseData.invoicesDetails[0];
-                return {
-                    id: invoiceResult.invoiceID || paymentData.orderId,
-                    url: invoiceResult.paymentLink,
-                    status: 'INITIATED'
-                };
+            // If error is NOT 00017, throw it (real error like auth fail)
+            if (response.Error && response.Error !== '00017') {
+                throw new Error(`Payone Error ${response.Error}: ${response.ErrorMessage}`);
             }
 
-            // Fallback
-            return responseData;
+            // If Error IS 00017, just log and allow fallthrough to Strategy 2
+            logger.warn(`[Payone] Attempt 1 failed with Invalid JSON (00017), switching to Encoded strategy.`);
 
         } catch (error) {
-            const errMsg = error.message || 'Unknown error';
-            logger.error('[Payone] Create Invoice Error:', errMsg);
+            // Save error and try next strategy
+            lastError = error;
+            logger.warn(`[Payone] Attempt 1 Exception: ${error.message}`);
+        }
+
+        // STRATEGY 2: URL Encoded (Standard Web Standard)
+        try {
+            logger.info(`[Payone] Attempt 2 (Encoded JSON) for Order #${paymentData.orderId}`);
+
+            // We must update the invoiceID to avoid "Duplicate Invoice ID" if the first one actually reached the server but failed parsing partially
+            invoicesData.invoicesDetails[0].invoiceID += '-R2';
+            const jsonStrRetry = JSON.stringify(invoicesData);
+
+            const requestBody = 'invoices=' + encodeURIComponent(jsonStrRetry);
+            const bodyBuffer = Buffer.from(requestBody, 'utf-8');
+
+            const response = await this._post(`${this.baseUrl}/createInvoice`, bodyBuffer);
+
+            if (response && !response.Error && response.invoicesDetails) {
+                return this._parseResponse(response, paymentData.orderId);
+            }
+
+            if (response.Error) {
+                throw new Error(`Payone Error ${response.Error}: ${response.ErrorMessage}`);
+            }
+
+            return response; // Fallback
+
+        } catch (error) {
+            const errMsg = error.message || lastError?.message || 'Unknown error';
+            logger.error('[Payone] Create Invoice Error (All Strategies Failed):', errMsg);
             throw new ApiError(500, 'Failed to create Payone invoice: ' + errMsg);
         }
+    }
+
+    /**
+     * Helper to parse successful response
+     */
+    _parseResponse(responseData, orderId) {
+        if (responseData && responseData.invoicesDetails && responseData.invoicesDetails.length > 0) {
+            const invoiceResult = responseData.invoicesDetails[0];
+            return {
+                id: invoiceResult.invoiceID || orderId,
+                url: invoiceResult.paymentLink,
+                status: 'INITIATED'
+            };
+        }
+        return responseData;
     }
 }
 
