@@ -11,17 +11,13 @@ class PayoneService {
 
     /**
      * Create an invoice link for the customer.
-     * Based on Payone SmartLink official Java sample code:
-     *   The body is sent as: invoices=<RAW_JSON_STRING>
-     *   Content-Type: application/x-www-form-urlencoded
-     *   The JSON must NOT be URL-encoded.
+     * Payone SmartLink API expects: POST with query param invoices=<JSON_STRING>
      */
     async createInvoice(paymentData) {
         if (!this.merchantId || !this.authToken) {
             throw new InternalServerError('Payone credentials (MERCHANT_ID or AUTH_TOKEN) are missing.');
         }
 
-        // Build the invoices JSON object per Payone SmartLink API docs
         const invoicesData = {
             merchantID: this.merchantId,
             authenticationToken: this.authToken,
@@ -42,22 +38,23 @@ class PayoneService {
         try {
             logger.info(`[Payone] Creating invoice for Order #${paymentData.orderId}`);
 
-            // Per official Java sample: "invoices=" + jsonObject.toString()
-            // Sent as raw string body, NOT URL-encoded
-            const requestBody = 'invoices=' + JSON.stringify(invoicesData);
+            const jsonStr = JSON.stringify(invoicesData);
+            logger.info(`[Payone] Payload: ${jsonStr}`);
 
-            logger.info(`[Payone] Request Body: ${requestBody}`);
-
-            const response = await axios.post(`${this.baseUrl}/createInvoice`, requestBody, {
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                }
+            // Tested and confirmed working: axios with params sends it correctly
+            const response = await axios.post(`${this.baseUrl}/createInvoice`, null, {
+                params: { invoices: jsonStr },
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
             });
 
-            logger.info('[Payone] Raw Response: ' + JSON.stringify(response.data));
+            logger.info('[Payone] Response: ' + JSON.stringify(response.data));
+
+            // Check for API-level error
+            if (response.data && response.data.Error) {
+                throw new Error(`Payone Error ${response.data.Error}: ${response.data.ErrorMessage}`);
+            }
 
             // Extract payment link from response
-            // Response: { invoicesDetails: [{ paymentLink: "...", invoiceID: "...", ... }] }
             if (response.data && response.data.invoicesDetails && response.data.invoicesDetails.length > 0) {
                 const invoiceResult = response.data.invoicesDetails[0];
                 return {
@@ -67,18 +64,13 @@ class PayoneService {
                 };
             }
 
-            // If response has error
-            if (response.data && response.data.Error) {
-                throw new Error(`Payone Error ${response.data.Error}: ${response.data.ErrorMessage}`);
-            }
-
-            // Fallback - return full response for debugging
+            // Fallback
             return response.data;
 
         } catch (error) {
-            logger.error('[Payone] Create Invoice Error:', error.response?.data || error.message);
-            console.error('[Payone] Full Error Details:', JSON.stringify(error.response?.data || error.message, null, 2));
-            throw new ApiError(500, 'Failed to create Payone invoice: ' + (error.response?.data?.ErrorMessage || error.message));
+            const errMsg = error.response?.data?.ErrorMessage || error.message;
+            logger.error('[Payone] Create Invoice Error:', errMsg);
+            throw new ApiError(500, 'Failed to create Payone invoice: ' + errMsg);
         }
     }
 }
