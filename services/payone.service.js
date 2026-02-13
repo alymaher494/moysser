@@ -27,10 +27,10 @@ class PayoneService {
                 amount: paymentData.amount, // Payone usually expects standard float (e.g. 10.50) not Halalas, need to check
                 currency: paymentData.currency,
                 description: paymentData.description || `Order #${paymentData.orderId}`,
-                notificationUrl: paymentData.callback_url, // Server-to-Server notification
-                successurl: `${paymentData.callback_url}&status=paid`, // User redirect success
-                errorurl: `${paymentData.callback_url}&status=failed`, // User redirect error
-                backurl: `${paymentData.callback_url}&status=cancelled` // User redirect back/cancel
+                notificationUrl: paymentData.callback_url,
+                successUrl: `${paymentData.callback_url}&status=paid`,
+                errorUrl: `${paymentData.callback_url}&status=failed`,
+                backUrl: `${paymentData.callback_url}&status=cancelled`
             },
             customer: {
                 customerId: paymentData.metadata?.customer_id || 'guest',
