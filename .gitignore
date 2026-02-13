@@ -7,3 +7,7 @@ test_output.txt
 .vercel/
 dist/
 build/
+*.json
+!package.json
+!package-lock.json
+!vercel.json

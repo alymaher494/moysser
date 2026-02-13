@@ -1,93 +1,105 @@
 const express = require('express');
 const router = express.Router();
-const orderController = require('../controllers/order.controller');
-const response = require('../utils/response');
+const EcwidService = require('../services/ecwid.service');
+const MoyasarService = require('../services/moyasar.service');
+const PayoneService = require('../services/payone.service');
+const NoonService = require('../services/noon.service');
+const { mapEcwidOrderToPayment } = require('../utils/ecwid-mapper');
+const logger = require('../utils/logger');
+const { NotFoundError } = require('../utils/errors');
+
+const getEcwidService = () => {
+    return new EcwidService(process.env.ECWID_STORE_ID, process.env.ECWID_TOKEN);
+};
+
+const getPaymentService = (gateway) => {
+    switch (gateway.toLowerCase()) {
+        case 'moyasar':
+            const apiKey = process.env.MOYASAR_API_KEY_LIVE || process.env.MOYASAR_API_KEY_TEST;
+            return new MoyasarService(apiKey);
+        case 'payone':
+            return new PayoneService(); // Payone uses env vars internally in this version
+        case 'noon':
+            return new NoonService();
+        default:
+            throw new NotFoundError(`Gateway '${gateway}' is not supported`);
+    }
+};
 
 /**
  * Checkout Flow Routes
  */
 
-// Landing page for checkout redirection from Ecwid
-router.get('/:orderId', (req, res) => {
-    res.send(`
-    <!DOCTYPE html>
-    <html lang="ar" dir="rtl">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>جاري تحويلك للدفع...</title>
-        <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
-        <style>
-            body {
-                font-family: 'Tajawal', sans-serif;
-                background-color: #0f172a;
-                color: #f8fafc;
-                margin: 0;
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                align-items: center;
-                height: 100vh;
-                text-align: center;
-            }
-            .loader {
-                width: 48px;
-                height: 48px;
-                border: 5px solid #FFF;
-                border-bottom-color: #2563eb;
-                border-radius: 50%;
-                display: inline-block;
-                box-sizing: border-box;
-                animation: rotation 1s linear infinite;
-                margin-bottom: 2rem;
-            }
-            @keyframes rotation {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-            }
-            h1 { font-weight: 700; font-size: 1.5rem; margin-bottom: 1rem; }
-            p { color: #94a3b8; }
-        </style>
-    </head>
-    <body>
-        <span class="loader"></span>
-        <h1>جاري تجهيز عملية الدفع للطلب #${req.params.orderId}</h1>
-        <p>يرجى الانتظار، سيتم تحويلك إلى بوابة ميسر خلال لحظات...</p>
+// Universal Landing page for checkout redirection
+// Route: /checkout/:gateway/:orderId
+router.get('/:gateway/:orderId', async (req, res) => {
+    const { gateway, orderId } = req.params;
 
-        <script>
-            // Automatically initiate payment creation via API
-            const apiKey = "${process.env.APP_API_KEY || ''}";
-            
-            fetch('/api/orders/${req.params.orderId}/pay', { 
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'X-API-KEY': apiKey
-                }
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success && data.data.transactionUrl) {
-                    window.location.href = data.data.transactionUrl;
-                } else {
-                    console.error('Payment initiation failed:', data);
-                    document.body.innerHTML = \`
-                        <h1 style="color: #ef4444">حدث خطأ أثناء التجهيز</h1>
-                        <p>\${data.message || 'يرجى مراجعة إعدادات الـ API Key'}</p>
-                        <hr style="border: 0; border-top: 1px solid #334155; width: 50%; margin: 1.5rem 0;">
-                        <p style="font-size: 0.8rem; color: #64748b;">\${data.errors ? JSON.stringify(data.errors) : ''}</p>
-                        <a href="/" style="color: #2563eb; text-decoration: none; margin-top: 2rem; display: block;">العودة للرئيسية</a>
-                    \`;
-                }
-            })
-            .catch(err => {
-                console.error(err);
-                document.body.innerHTML = '<h1>حدث خطأ غير متوقع في جلب البيانات</h1>';
-            });
-        </script>
-    </body>
-    </html>
-  `);
+    try {
+        logger.info(`Processing ${gateway} checkout for Order #${orderId}`);
+
+        // 1. Get order from Ecwid
+        const ecwid = getEcwidService();
+        const order = await ecwid.getOrder(orderId);
+
+        // 2. Map Ecwid order to Payment data (Generic mapping)
+        const paymentData = mapEcwidOrderToPayment(order);
+
+        // 3. Add callback URL dynamically
+        const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+        const host = req.get('host');
+        // Callback needs to know which gateway to verify against
+        paymentData.callback_url = `${protocol}://${host}/api/payments/callback/${gateway}?orderId=${orderId}`;
+
+        // 4. Initialize the selected Gateway Service
+        const paymentService = getPaymentService(gateway);
+
+        let redirectUrl;
+
+        // 5. Create Invoice/Payment based on gateway
+        const invoice = await paymentService.createInvoice(paymentData);
+        redirectUrl = invoice.url;
+
+        if (!redirectUrl) {
+            throw new Error('Failed to generate payment URL from gateway');
+        }
+
+        // 6. Redirect user
+        logger.info(`Redirecting user to ${gateway} Invoice: ${redirectUrl}`);
+        return res.redirect(redirectUrl);
+
+    } catch (error) {
+        logger.error(`${gateway} Checkout error for Order #${orderId}:`, error);
+
+        res.status(500).send(`
+            <!DOCTYPE html>
+            <html lang="ar" dir="rtl">
+            <head>
+                <meta charset="UTF-8">
+                <title>خطأ في التجهيز</title>
+                <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+                <style>
+                    body { font-family: 'Tajawal', sans-serif; background-color: #0f172a; color: #f8fafc; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; text-align: center; }
+                    .error-container { background: rgba(255, 255, 255, 0.05); padding: 2rem; border-radius: 16px; border: 1px solid rgba(239, 68, 68, 0.2); }
+                    h1 { color: #ef4444; }
+                    a { color: #2563eb; text-decoration: none; margin-top: 1rem; display: block; }
+                </style>
+            </head>
+            <body>
+                <div class="error-container">
+                    <h1>حدث خطأ أثناء تجهيز الدفع (${gateway})</h1>
+                    <p>${error.message || 'يرجى المحاولة مرة أخرى لاحقاً'}</p>
+                    <a href="/">العودة للرئيسية</a>
+                </div>
+            </body>
+            </html>
+        `);
+    }
+});
+
+// Backward compatibility for old route (defaults to Moyasar)
+router.get('/:orderId', (req, res) => {
+    res.redirect(`/checkout/moyasar/${req.params.orderId}`);
 });
 
 router.get('/payment/success', (req, res) => {
@@ -99,3 +111,5 @@ router.get('/payment/failure', (req, res) => {
 });
 
 module.exports = router;
+
+

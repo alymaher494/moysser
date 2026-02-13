@@ -8,7 +8,15 @@ const getEcwidService = () => {
 };
 
 const getMoyasarService = () => {
-    const apiKey = process.env.MOYASAR_API_KEY_LIVE || process.env.MOYASAR_API_KEY_TEST;
+    const liveKey = process.env.MOYASAR_API_KEY_LIVE;
+    const testKey = process.env.MOYASAR_API_KEY_TEST;
+
+    // Explicitly check for live key first
+    const apiKey = liveKey || testKey;
+    const isLive = liveKey && liveKey.startsWith('sk_live_');
+
+    console.log(`[Moyasar] Initializing in ${isLive ? 'LIVE' : 'TEST'} mode`);
+
     return new MoyasarService(apiKey);
 };
 
@@ -43,6 +51,7 @@ const initiateOrderPayment = async (req, res, next) => {
 
         // 4. Create invoice in Moyasar (for Hosted Redirection)
         const moyasar = getMoyasarService();
+        console.log(`[Moyasar] Creating invoice for order ${id}...`);
         const invoice = await moyasar.createInvoice(paymentData);
 
         // 5. Return the invoice URL to redirect the user

@@ -6,23 +6,37 @@ const { UnauthorizedError } = require('../utils/errors');
  * Middleware to verify Ecwid Webhook signatures
  */
 const verifyEcwidWebhook = (req, res, next) => {
-    const ecwidToken = process.env.ECWID_TOKEN;
-    const signature = req.headers['x-ecwid-webhook-signature'];
+    const webhookSecret = process.env.ECWID_WEBHOOK_SECRET || process.env.ECWID_TOKEN;
+    const clientSignature = req.headers['x-ecwid-webhook-signature'];
 
-    if (!signature) {
+    if (!webhookSecret) {
+        logger.error('Ecwid webhook secret is not configured');
+        return res.status(500).send('Webhook verification not configured');
+    }
+
+    if (!clientSignature) {
         logger.warn('Missing Ecwid webhook signature');
         return next(new UnauthorizedError('Missing webhook signature'));
     }
 
-    // Ecwid webhooks can be verified by comparing the signature
-    // Note: Depending on the Ecwid app type, validation might differ.
-    // This is a placeholder for standard HMAC validation if applicable
-    // Or checking against a known secret.
+    try {
+        // Ecwid uses HMAC SHA256 of the raw body
+        // Note: For Ecwid, the signature is often hex encoded
+        const payload = JSON.stringify(req.body);
+        const hmac = crypto.createHmac('sha256', webhookSecret);
+        const computedSignature = hmac.update(payload).digest('hex');
 
-    // For many simple integrations, checking the presence and a basic token is the first step.
-    // Advanced: crypto.createHmac('sha256', secret).update(body).digest('base64');
+        if (clientSignature !== computedSignature) {
+            logger.warn('Ecwid webhook invalid signature');
+            return next(new UnauthorizedError('Invalid webhook signature'));
+        }
 
-    next();
+        next();
+    } catch (error) {
+        logger.error('Error verifying Ecwid webhook signature:', error);
+        return res.status(500).send('Verification error');
+    }
 };
 
 module.exports = verifyEcwidWebhook;
+

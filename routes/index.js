@@ -29,7 +29,14 @@ router.get('/', (req, res) => {
  */
 router.get('/health', healthController.checkHealth);
 router.get('/test', testController.runTest);
-router.get('/env', testController.getEnv);
+
+// Secure or disable /env in production
+router.get('/env', (req, res) => {
+    if (process.env.NODE_ENV === 'production') {
+        return res.status(404).json({ success: false, message: 'Endpoint disabled for security' });
+    }
+    return testController.getEnv(req, res);
+});
 
 // Sub-routes
 router.use('/payments', paymentRoutes);

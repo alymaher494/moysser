@@ -4,6 +4,7 @@
 
 const mapEcwidOrderToPayment = (order) => {
     return {
+        orderId: String(order.orderNumber), // Use Order Number for payment references
         amount: order.total,
         currency: order.currency || 'SAR',
         description: `Payment for Ecwid Order #${order.orderNumber}`,
@@ -12,6 +13,7 @@ const mapEcwidOrderToPayment = (order) => {
             order_id: String(order.id || ''),
             order_number: String(order.orderNumber || ''),
             customer_email: String(order.email || ''),
+            customer_name: String(order.billingPerson?.name || 'Guest'), // Add customer name
             platform: 'Ecwid'
         }
     };
