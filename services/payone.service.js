@@ -6,12 +6,13 @@ class PayoneService {
     constructor() {
         this.merchantId = process.env.PAYONE_MERCHANT_ID;
         this.authToken = process.env.PAYONE_AUTH_TOKEN;
-        // Correct URL based on provided details (handling the double hyphen typo likely in user input)
         this.baseUrl = process.env.PAYONE_BASE_URL || 'https://smartlinkdb-test.payone.io/URL2PayAdminWeb/rest/InvoicesService';
     }
 
     /**
      * Create an invoice link for the customer
+     * Payone SmartLink expects data as a form parameter named "invoices"
+     * containing a JSON string with merchantID, authenticationToken, and invoicesDetails array.
      * @param {Object} paymentData
      */
     async createInvoice(paymentData) {
@@ -19,54 +20,63 @@ class PayoneService {
             throw new InternalServerError('Payone credentials (MERCHANT_ID or AUTH_TOKEN) are missing.');
         }
 
-        const payload = {
-            merchantId: this.merchantId,
-            token: this.authToken,
-            invoices: [{
-                invoiceId: paymentData.orderId, // Using Order ID as Invoice ID
-                amount: paymentData.amount, // Payone usually expects standard float (e.g. 10.50) not Halalas, need to check
-                currency: paymentData.currency,
-                description: paymentData.description || `Order #${paymentData.orderId}`,
-                notificationUrl: paymentData.callback_url,
-                successUrl: `${paymentData.callback_url}&status=paid`,
-                errorUrl: `${paymentData.callback_url}&status=failed`,
-                backUrl: `${paymentData.callback_url}&status=cancelled`
-            }],
-            customer: {
-                customerId: paymentData.metadata?.customer_id || 'guest',
-                email: paymentData.metadata?.customer_email,
-                firstName: paymentData.metadata?.customer_name?.split(' ')[0] || 'Guest',
-                lastName: paymentData.metadata?.customer_name?.split(' ').slice(1).join(' ') || 'User'
-            }
+        // Build the invoices JSON object per Payone SmartLink API docs
+        const invoicesData = {
+            merchantID: this.merchantId,
+            authenticationToken: this.authToken,
+            invoicesDetails: [{
+                invoiceID: paymentData.orderId,
+                amount: String(paymentData.amount),
+                currency: '682', // SAR ISO 4217 numeric code
+                paymentDescription: paymentData.description || `Order #${paymentData.orderId}`,
+                customerID: paymentData.metadata?.customer_name || 'Guest',
+                customerEmailAddress: paymentData.metadata?.customer_email || '',
+                language: 'ar',
+                expiryperiod: '1D',
+                notifyMe: 'no',
+                generateQRCode: 'no'
+            }]
         };
 
         try {
             logger.info(`[Payone] Creating invoice for Order #${paymentData.orderId}`);
+            logger.info(`[Payone] Payload: ${JSON.stringify(invoicesData)}`);
 
-            const response = await axios.post(`${this.baseUrl}/createInvoice`, payload, {
+            // Payone expects "invoices" as a form parameter (application/x-www-form-urlencoded)
+            const formData = new URLSearchParams();
+            formData.append('invoices', JSON.stringify(invoicesData));
+
+            const response = await axios.post(`${this.baseUrl}/createInvoice`, formData.toString(), {
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/x-www-form-urlencoded'
                 }
             });
 
-            // SmartLink usually returns the link in the response
-            // Expected response format needs to be handled
-            if (response.data && response.data.url) {
+            logger.info('[Payone] Raw Response: ' + JSON.stringify(response.data));
+
+            // Extract payment link from response
+            // Response contains invoicesDetails array with paymentLink for each invoice
+            if (response.data && response.data.invoicesDetails && response.data.invoicesDetails.length > 0) {
+                const invoiceResult = response.data.invoicesDetails[0];
                 return {
-                    id: response.data.invoiceId || paymentData.orderId,
-                    url: response.data.url, // The payment link
+                    id: invoiceResult.invoiceID || paymentData.orderId,
+                    url: invoiceResult.paymentLink,
                     status: 'INITIATED'
                 };
             }
 
-            // Fallback if structure is different (logging for debugging)
-            logger.info('[Payone] Raw Response:', response.data);
+            // If response has error
+            if (response.data && response.data.Error) {
+                throw new Error(`Payone Error ${response.data.Error}: ${response.data.ErrorMessage}`);
+            }
+
+            // Fallback - return full response for debugging
             return response.data;
 
         } catch (error) {
             logger.error('[Payone] Create Invoice Error:', error.response?.data || error.message);
-            console.error('[Payone] Full Error Details:', JSON.stringify(error.response?.data, null, 2));
-            throw new ApiError(500, 'Failed to create Payone invoice: ' + (error.response?.data?.errorMessage || error.message));
+            console.error('[Payone] Full Error Details:', JSON.stringify(error.response?.data || error.message, null, 2));
+            throw new ApiError(500, 'Failed to create Payone invoice: ' + (error.response?.data?.ErrorMessage || error.message));
         }
     }
 }
