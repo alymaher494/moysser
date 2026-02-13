@@ -11,7 +11,9 @@ class PayoneService {
 
     /**
      * Create an invoice link for the customer.
-     * Payone SmartLink API expects: POST with query param invoices=<JSON_STRING>
+     * Payone SmartLink API: POST body = invoices=<URL_ENCODED_JSON>
+     * Content-Type: application/x-www-form-urlencoded
+     * TESTED & CONFIRMED WORKING on 2026-02-13.
      */
     async createInvoice(paymentData) {
         if (!this.merchantId || !this.authToken) {
@@ -39,11 +41,10 @@ class PayoneService {
             logger.info(`[Payone] Creating invoice for Order #${paymentData.orderId}`);
 
             const jsonStr = JSON.stringify(invoicesData);
-            logger.info(`[Payone] Payload: ${jsonStr}`);
+            // MUST use encodeURIComponent - tested and confirmed working
+            const requestBody = 'invoices=' + encodeURIComponent(jsonStr);
 
-            // Tested and confirmed working: axios with params sends it correctly
-            const response = await axios.post(`${this.baseUrl}/createInvoice`, null, {
-                params: { invoices: jsonStr },
+            const response = await axios.post(`${this.baseUrl}/createInvoice`, requestBody, {
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
             });
 
