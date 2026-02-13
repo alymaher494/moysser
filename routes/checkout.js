@@ -96,6 +96,68 @@ router.get('/:gateway/:orderId', async (req, res) => {
     }
 });
 
+// TEMPORARY DEBUG: Test Payone API directly from Vercel
+router.get('/debug-payone', async (req, res) => {
+    const https = require('https');
+
+    const invoicesData = {
+        merchantID: process.env.PAYONE_MERCHANT_ID || 'NOT_SET',
+        authenticationToken: process.env.PAYONE_AUTH_TOKEN || 'NOT_SET',
+        invoicesDetails: [{
+            invoiceID: 'DEBUG' + Date.now(),
+            amount: '1',
+            currency: '682',
+            paymentDescription: 'Debug Test',
+            customerID: 'DebugUser',
+            customerEmailAddress: 'debug@test.com',
+            language: 'en',
+            expiryperiod: '1D',
+            notifyMe: 'no',
+            generateQRCode: 'no'
+        }]
+    };
+
+    const jsonStr = JSON.stringify(invoicesData);
+    const body = 'invoices=' + jsonStr;
+
+    const baseUrl = process.env.PAYONE_BASE_URL || 'https://smartlinkdb-test.payone.io/URL2PayAdminWeb/rest/InvoicesService';
+
+    try {
+        const urlObj = new URL(baseUrl + '/createInvoice');
+        const result = await new Promise((resolve, reject) => {
+            const options = {
+                hostname: urlObj.hostname,
+                path: urlObj.pathname,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Content-Length': Buffer.byteLength(body)
+                }
+            };
+            const r = https.request(options, (response) => {
+                let data = '';
+                response.on('data', chunk => data += chunk);
+                response.on('end', () => resolve(data));
+            });
+            r.on('error', reject);
+            r.write(body);
+            r.end();
+        });
+
+        res.json({
+            sentBody: body.substring(0, 200) + '...',
+            bodyLength: body.length,
+            bufferLength: Buffer.byteLength(body),
+            merchantIdSet: !!process.env.PAYONE_MERCHANT_ID,
+            authTokenSet: !!process.env.PAYONE_AUTH_TOKEN,
+            baseUrl: baseUrl,
+            rawResponse: result
+        });
+    } catch (e) {
+        res.json({ error: e.message });
+    }
+});
+
 // Backward compatibility for old route (defaults to Moyasar)
 router.get('/:orderId', (req, res) => {
     res.redirect(`/checkout/moyasar/${req.params.orderId}`);
