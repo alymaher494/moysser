@@ -24,7 +24,7 @@ class PayoneService {
             merchantID: this.merchantId,
             authenticationToken: this.authToken,
             invoicesDetails: [{
-                invoiceID: String(paymentData.orderId),
+                invoiceID: String(paymentData.orderId) + '-' + Date.now(),
                 amount: String(paymentData.amount),
                 currency: '682', // SAR = ISO 4217 numeric code 682
                 paymentDescription: paymentData.description || `Order ${paymentData.orderId}`,
