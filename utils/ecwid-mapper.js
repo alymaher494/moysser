@@ -8,11 +8,14 @@ const mapEcwidOrderToPayment = (order) => {
         amount: order.total,
         currency: order.currency || 'SAR',
         description: `Payment for Ecwid Order #${order.orderNumber}`,
+        customerEmail: order.email || 'customer@example.com',
+        customerPhone: order.billingPerson?.phone || order.shippingPerson?.phone || '+966500000000',
+        customerName: order.billingPerson?.name || 'Guest',
         callback_url: '', // To be filled by the route handler
         metadata: {
             order_id: String(order.id || ''),
             order_number: String(order.orderNumber || ''),
-            customer_email: String(order.email || ''),
+            customer_email: String(order.email || 'customer@example.com'),
             customer_name: String(order.billingPerson?.name || 'Guest'), // Add customer name
             platform: 'Ecwid'
         }
