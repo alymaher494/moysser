@@ -28,6 +28,9 @@ class PayoneService {
             ? paymentData.customerEmail
             : 'customer@moysser-app.com';
 
+        // Sanitize phone number for Payone (must be 009665xxxxxxxx format)
+        const safePhone = this._sanitizePhoneForPayone(paymentData.customerPhone);
+
         const payload = {
             merchantID: this.merchantId,
             authenticationToken: cleanToken,
@@ -40,7 +43,7 @@ class PayoneService {
                 customerEmailAddress: customerEmail,
                 language: paymentData.language || 'ar',
                 expiryperiod: '2D',
-                customerMobileNumber: paymentData.customerPhone || '00966500000000',
+                customerMobileNumber: safePhone,
                 notifyMe: 'yes',
                 notificationEmail: customerEmail,
                 dynamicFields: [{ itemID: '1' }], // Required for schema validation
@@ -143,6 +146,45 @@ class PayoneService {
     _getApiUrl(endpoint = 'createInvoice') {
         const base = this.baseUrl.endsWith('/') ? this.baseUrl.slice(0, -1) : this.baseUrl;
         return `${base}/${endpoint}`;
+    }
+
+    /**
+     * Sanitize phone number for Payone API
+     * Payone requires format: 009665xxxxxxxx (14 digits total)
+     * Error 00013 = Invalid Customer Mobile Number Format
+     */
+    _sanitizePhoneForPayone(phone) {
+        const DEFAULT_PHONE = '00966500000000';
+
+        if (!phone || typeof phone !== 'string') return DEFAULT_PHONE;
+
+        // Remove all non-digit characters
+        let digits = phone.replace(/[^0-9]/g, '');
+
+        // If empty after cleaning, return default
+        if (!digits || digits.length < 7) return DEFAULT_PHONE;
+
+        // Already in 00966 format (14 digits) - valid
+        if (digits.startsWith('00966') && digits.length === 14) return digits;
+
+        // Starts with 966 (without 00 prefix)
+        if (digits.startsWith('966') && digits.length === 12) return '00' + digits;
+
+        // Saudi local format: 05xxxxxxxx (10 digits)
+        if (digits.startsWith('05') && digits.length === 10) return '00966' + digits.substring(1);
+
+        // Saudi without leading 0: 5xxxxxxxx (9 digits)
+        if (digits.startsWith('5') && digits.length === 9) return '00966' + digits;
+
+        // Any other format - try prepending 00966 if it looks like a local number
+        if (digits.length >= 7 && digits.length <= 10) return '00966' + digits;
+
+        // If it's already a long international number, try to use as-is with 00 prefix
+        if (digits.length >= 11 && !digits.startsWith('00')) return '00' + digits;
+        if (digits.length >= 13 && digits.startsWith('00')) return digits;
+
+        // Fallback to default
+        return DEFAULT_PHONE;
     }
 }
 
