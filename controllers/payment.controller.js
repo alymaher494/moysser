@@ -68,6 +68,7 @@ const getEcwidService = () => {
 
 const PayoneService = require('../services/payone.service');
 const NoonService = require('../services/noon.service');
+const payoneScheduler = require('../services/payone-scheduler.service');
 
 const getPaymentService = (gateway) => {
     switch (gateway.toLowerCase()) {
@@ -122,6 +123,9 @@ const handleCallback = async (req, res, next) => {
                 statusMessage = `Verified status: ${invoice.invoiceStatus}`;
 
                 logger.info(`[Payone Callback] Verified Order #${orderId} with status: ${invoice.invoiceStatus}`);
+
+                // Cancel the scheduled delayed inquiry since callback already handled it
+                payoneScheduler.cancelInquiry(finalId);
             }
         } else if (gateway === 'noon') {
             // Noon Redirect (GET)

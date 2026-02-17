@@ -7,6 +7,7 @@ const NoonService = require('../services/noon.service');
 const { mapEcwidOrderToPayment } = require('../utils/ecwid-mapper');
 const logger = require('../utils/logger');
 const { NotFoundError } = require('../utils/errors');
+const payoneScheduler = require('../services/payone-scheduler.service');
 
 const getEcwidService = () => {
     return new EcwidService(process.env.ECWID_STORE_ID, process.env.ECWID_TOKEN);
@@ -54,7 +55,12 @@ router.get('/:gateway/:orderId', async (req, res) => {
             throw new Error('Payment gateway failed to provide a redirect URL.');
         }
 
-        // 4. Redirect
+        // 4. Schedule delayed inquiry for Payone (3-5 min as recommended by Payone support)
+        if (gateway.toLowerCase() === 'payone' && invoice.id) {
+            payoneScheduler.scheduleInquiry(invoice.id, orderId);
+        }
+
+        // 5. Redirect
         logger.info(`[Checkout] Redirecting to: ${invoice.url}`);
         return res.redirect(invoice.url);
 

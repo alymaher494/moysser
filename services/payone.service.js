@@ -36,26 +36,29 @@ class PayoneService {
                 amount: amountMinor,
                 currency: '682', // SAR Numeric Code
                 paymentDescription: `Order ${paymentData.orderId}`,
-                customerID: paymentData.customerId || 'Guest',
+                customerID: 'Guest',
                 customerEmailAddress: customerEmail,
                 language: paymentData.language || 'ar',
                 expiryperiod: '2D',
                 customerMobileNumber: paymentData.customerPhone || '00966500000000',
                 notifyMe: 'yes',
                 notificationEmail: customerEmail,
-                dynamicFields: [{ ItemID: '1' }], // Required for schema validation
+                dynamicFields: [{ itemID: '1' }], // Required for schema validation
                 generateQRCode: 'yes'
             }]
         };
 
         try {
             const apiUrl = this._getApiUrl();
-            const bodyParams = new URLSearchParams({ invoices: JSON.stringify(payload) });
+            const body = `invoices=${JSON.stringify(payload)}`;
 
             const response = await fetch(apiUrl, {
                 method: 'POST',
-                body: bodyParams,
-                headers: { 'User-Agent': 'MoysserPaymentClient/1.0' }
+                body: body,
+                headers: {
+                    'User-Agent': 'MoysserPaymentClient/1.0',
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                }
             });
 
             const textResponse = await response.text();
@@ -83,7 +86,7 @@ class PayoneService {
             throw new Error('Success response received but no invoice details found');
 
         } catch (error) {
-            logger.error('[Payone Service] Failed:', error.message);
+            logger.error('[Payone Service] Failed:', error);
             throw new ApiError(500, `Payone integration failed: ${error.message}`);
         }
     }
