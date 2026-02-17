@@ -46,9 +46,9 @@ class PayoneService {
                 customerMobileNumber: safePhone,
                 notifyMe: 'yes',
                 notificationEmail: customerEmail,
-                successUrl: paymentData.callback_url + '&status=paid',
-                errorUrl: paymentData.callback_url + '&status=failed',
-                backUrl: paymentData.callback_url + '&status=cancelled',
+                successUrl: paymentData.callback_url,
+                errorUrl: paymentData.callback_url,
+                backUrl: paymentData.callback_url,
                 dynamicFields: [{ itemID: '1' }], // Required for schema validation
                 generateQRCode: 'yes'
             }]
