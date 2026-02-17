@@ -1,6 +1,7 @@
 const MoyasarService = require('../services/moyasar.service');
 const response = require('../utils/response');
 const { NotFoundError } = require('../utils/errors');
+const logger = require('../utils/logger');
 
 const getMoyasarService = () => {
     const liveKey = process.env.MOYASAR_API_KEY_LIVE;
@@ -84,7 +85,10 @@ const getPaymentService = (gateway) => {
 const handleCallback = async (req, res, next) => {
     try {
         const { gateway } = req.params;
-        const { orderId, id, status, message, resultCode } = req.query;
+        const { orderId, id, status, message, resultCode, invoiceID } = req.query;
+
+        // Normalize the Payone ID
+        const finalId = id || invoiceID;
         // Payone POST body might contain status, but for redirect (GET) we use query params set in service
 
         let paymentStatus = 'FAILED';
@@ -102,15 +106,23 @@ const handleCallback = async (req, res, next) => {
             }
         } else if (gateway === 'payone') {
             // Payone SmartLink Redirect (GET)
-            // We set status=paid/failed/cancelled in the URL
+            // 1. Initial status from query (if present)
             if (status) {
                 paymentStatus = status.toLowerCase();
             }
-            // Note: For production, we should verifying the signature or hash if Payone sends one 
-            // or wait for the server-to-server POST notification to be 100% sure. 
-            // For MVP, trusting the redirect status we set ourselves in the service URL 
-            // is acceptable but insecure if user manipulates URL.
-            // Ideally call an API to verify, but SmartLink API is limited here.
+
+            // 2. Verify with API for security
+            if (finalId) {
+                const payone = new PayoneService();
+                const invoice = await payone.inquireInvoice(finalId);
+
+                // Possible values: PAID, REFUNDED, NEW, EXPIRED, PENDING_REFUND_APPROVAL
+                paymentStatus = invoice.invoiceStatus.toLowerCase();
+                transactionId = invoice.invoiceID;
+                statusMessage = `Verified status: ${invoice.invoiceStatus}`;
+
+                logger.info(`[Payone Callback] Verified Order #${orderId} with status: ${invoice.invoiceStatus}`);
+            }
         } else if (gateway === 'noon') {
             // Noon Redirect (GET)
             // returns ?orderId=...&resultCode=...

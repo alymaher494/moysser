@@ -88,6 +88,47 @@ class PayoneService {
         }
     }
 
+    async inquireInvoice(invoiceId) {
+        this._validateConfig();
+
+        const cleanToken = (this.authToken || '').replace(/\s+/g, '');
+        const payload = {
+            authenticationToken: cleanToken,
+            merchantID: this.merchantId,
+            invoiceID: invoiceId
+        };
+
+        try {
+            const apiUrl = this._getApiUrl('inquireInvoice');
+            const bodyParams = new URLSearchParams({ invoice: JSON.stringify(payload) });
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                body: bodyParams,
+                headers: { 'User-Agent': 'MoysserPaymentClient/1.0' }
+            });
+
+            const textResponse = await response.text();
+            let responseData;
+
+            try {
+                responseData = JSON.parse(textResponse);
+            } catch (e) {
+                throw new Error(`Unexpected non-JSON response from Payone: ${textResponse.substring(0, 100)}`);
+            }
+
+            if (responseData.Error) {
+                throw new Error(`Payone API Error ${responseData.Error}: ${responseData.ErrorMessage}`);
+            }
+
+            return responseData; // Returns the full invoice object containing status, etc.
+
+        } catch (error) {
+            logger.error('[Payone Service] Inquire Failed:', error.message);
+            throw new ApiError(500, `Payone inquiry failed: ${error.message}`);
+        }
+    }
+
     /* Helper Methods */
 
     _validateConfig() {
@@ -96,9 +137,9 @@ class PayoneService {
         }
     }
 
-    _getApiUrl() {
+    _getApiUrl(endpoint = 'createInvoice') {
         const base = this.baseUrl.endsWith('/') ? this.baseUrl.slice(0, -1) : this.baseUrl;
-        return `${base}/createInvoice`;
+        return `${base}/${endpoint}`;
     }
 }
 

@@ -59,7 +59,10 @@ const mapMoyasarStatusToEcwid = (moyasarStatus) => {
         'cancelled': 'CANCELLED',
         'refunded': 'REFUNDED',
         'voided': 'CANCELLED',
-        'initiated': 'AWAITING_PAYMENT'
+        'initiated': 'AWAITING_PAYMENT',
+        'expired': 'CANCELLED',
+        'new': 'AWAITING_PAYMENT',
+        'pending_refund_approval': 'AWAITING_PAYMENT'
     };
 
     return statusMap[moyasarStatus.toLowerCase()] || 'AWAITING_PAYMENT';
