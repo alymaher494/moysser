@@ -4,6 +4,7 @@ const EcwidService = require('../services/ecwid.service');
 const MoyasarService = require('../services/moyasar.service');
 const PayoneService = require('../services/payone.service');
 const NoonService = require('../services/noon.service');
+const EdfapayService = require('../services/edfapay.service');
 const { mapEcwidOrderToPayment } = require('../utils/ecwid-mapper');
 const logger = require('../utils/logger');
 const { NotFoundError } = require('../utils/errors');
@@ -22,6 +23,8 @@ const getPaymentService = (gateway) => {
             return new PayoneService();
         case 'noon':
             return new NoonService();
+        case 'edfapay':
+            return new EdfapayService();
         default:
             throw new NotFoundError(`Gateway '${gateway}' is not supported`);
     }

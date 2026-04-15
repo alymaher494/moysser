@@ -76,6 +76,17 @@ class EdfapayService {
     }
 
     /**
+     * Alias for createPayment to match project service interface
+     */
+    async createInvoice(orderData) {
+        const payment = await this.createPayment(orderData);
+        return {
+            url: payment.redirectUrl,
+            id: payment.transactionId || payment.id
+        };
+    }
+
+    /**
      * Inquires the status of the transaction from Edfapay API.
      */
     async getPayment(transactionId) {
