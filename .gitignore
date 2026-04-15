@@ -11,3 +11,5 @@ build/
 !package.json
 !package-lock.json
 !vercel.json
+payzaty-shopify-bridge/
+test-edfapay.js

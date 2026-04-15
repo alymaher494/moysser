@@ -1,0 +1,152 @@
+const axios = require('axios');
+const crypto = require('crypto');
+const logger = require('../utils/logger'); // assuming logger exists
+
+class EdfapayService {
+    constructor() {
+        this.merchantKey = process.env.EDFAPAY_MERCHANT_KEY;
+        this.apiPassword = process.env.EDFAPAY_API_PASSWORD;
+        this.baseUrl = process.env.EDFAPAY_BASE_URL || 'https://api.edfapay.com';
+        
+        if (!this.merchantKey || !this.apiPassword) {
+            logger.warn('Edfapay initialized without credentials. Integration incomplete.');
+        }
+    }
+
+    async createPayment(orderData) {
+        try {
+            const email = (orderData.email || 'customer@example.com').trim();
+            const orderId = (orderData.order_id || `order_${Date.now()}`).trim();
+            const amount = parseFloat(orderData.amount).toFixed(2);
+            const currency = (orderData.currency || 'SAR').trim();
+
+            const params = new URLSearchParams();
+            params.append('action', 'SALE');
+            params.append('edfa_merchant_id', this.merchantKey.trim());
+            params.append('order_id', orderId);
+            params.append('order_amount', amount);
+            params.append('order_currency', currency);
+            params.append('order_description', (orderData.description || 'Order Payment').trim());
+            params.append('payer_first_name', (orderData.first_name || 'Guest').trim());
+            params.append('payer_last_name', (orderData.last_name || 'Customer').trim());
+            params.append('payer_email', email);
+            params.append('payer_phone', (orderData.phone || '0500000000').trim());
+            params.append('payer_address', (orderData.address || 'Street 1').trim());
+            params.append('payer_city', (orderData.city || 'Riyadh').trim());
+            params.append('payer_zip', (orderData.zip_code || '12345').trim());
+            params.append('payer_country', (orderData.country || 'SA').trim());
+            params.append('payer_ip', (orderData.payer_ip || '156.204.1.1').trim());
+            params.append('success_url', (orderData.success_url || 'https://yourwebsite.com/checkout/payment/success').trim());
+            params.append('cancel_url', (orderData.cancel_url || 'https://yourwebsite.com/checkout/payment/failure').trim());
+
+            // Generate hash for checkout/initiate (no card number available)
+            const hash = this.generateHash(email);
+            params.append('hash', hash);
+
+            const response = await axios.post(`${this.baseUrl}/payment/initiate`, params, {
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                }
+            });
+
+            // Handle successful initiation
+            if (response.data && response.data.result === 'REDIRECT') {
+                return {
+                    id: response.data.order_id,
+                    transactionId: response.data.transaction_id,
+                    status: 'initiated',
+                    redirectUrl: response.data.redirect_url,
+                    source: response.data
+                };
+            }
+
+            // Handle error cases more explicitly
+            if (response.data && response.data.result === 'ERROR') {
+                const message = response.data.error_message || 'Unknown EdfaPay error';
+                throw new Error(`Edfapay Error: ${message}`);
+            }
+
+            throw new Error(`Edfapay Create Payment Error: Invalid response format`);
+            
+        } catch (error) {
+            const errorMsg = error.response?.data?.error_message || error.message;
+            logger.error(`[Edfapay] Error creating payment: ${errorMsg}`);
+            throw new Error(errorMsg);
+        }
+    }
+
+    /**
+     * Inquires the status of the transaction from Edfapay API.
+     */
+    async getPayment(transactionId) {
+        try {
+            const params = new URLSearchParams();
+            params.append('edfa_merchant_id', this.merchantKey);
+            params.append('transaction_id', transactionId);
+            
+            // Formula for status inquiry often differs, 
+            // but usually involves MD5 of transaction_id + password
+            const hashString = (transactionId + this.apiPassword.trim()).toUpperCase();
+            const hash = crypto.createHash('md5').update(hashString).digest('hex');
+            params.append('hash', hash);
+
+            const response = await axios.post(`${this.baseUrl}/payment/status`, params, {
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+            });
+
+            const paymentData = response.data;
+            
+            // Map the API status to standard system statuses (paid, failed)
+            let normalizedStatus = 'failed';
+            const status = paymentData.status ? paymentData.status.toUpperCase() : '';
+            
+            if (status === 'SUCCESS' || status === 'APPROVED' || status === 'SETTLED') {
+                normalizedStatus = 'paid';
+            } else if (status === 'DECLINED' || status === 'ERROR' || status === 'FILTERED') {
+                normalizedStatus = 'failed';
+            } else if (status === 'PENDING') {
+                normalizedStatus = 'initiated';
+            }
+
+            return {
+                id: transactionId,
+                status: normalizedStatus,
+                originalStatus: paymentData.status,
+                source: paymentData
+            };
+        } catch (error) {
+            logger.error(`[Edfapay] Error fetching payment info: ${error.message}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Helper to generate security hash if required by Edfapay.
+     */
+    /**
+     * Generate security hash for EdfaPay.
+     * Official formula from docs:
+     * HASH = MD5( UPPERCASE( Reverse(payer_email) + password + Reverse(card_first6 + card_last4) ) )
+     * For Checkout/Initiate (hosted), card data is not available,
+     * so we use: MD5( UPPERCASE( Reverse(payer_email) + password ) )
+     */
+    generateHash(email, cardNumber = null) {
+        const reverse = (str) => [...str].reverse().join('');
+        
+        let baseString;
+        if (cardNumber) {
+            // S2S flow with card number
+            const first6 = cardNumber.slice(0, 6);
+            const last4 = cardNumber.slice(-4);
+            baseString = reverse(email) + this.apiPassword + reverse(first6 + last4);
+        } else {
+            // Checkout/Initiate flow without card number
+            baseString = reverse(email) + this.apiPassword.trim();
+        }
+        
+        const finalString = baseString.toUpperCase();
+        return crypto.createHash('md5').update(finalString).digest('hex');
+    }
+}
+
+module.exports = EdfapayService;

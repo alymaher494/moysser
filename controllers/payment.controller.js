@@ -68,6 +68,7 @@ const getEcwidService = () => {
 
 const PayoneService = require('../services/payone.service');
 const NoonService = require('../services/noon.service');
+const EdfapayService = require('../services/edfapay.service');
 const payoneScheduler = require('../services/payone-scheduler.service');
 
 const getPaymentService = (gateway) => {
@@ -78,6 +79,8 @@ const getPaymentService = (gateway) => {
             return new PayoneService();
         case 'noon':
             return new NoonService();
+        case 'edfapay':
+            return new EdfapayService();
         default:
             throw new NotFoundError(`Gateway '${gateway}' is not supported`);
     }
@@ -142,6 +145,18 @@ const handleCallback = async (req, res, next) => {
                     paymentStatus = 'failed';
                     statusMessage = order.errorMessage || 'Noon payment failed';
                 }
+            }
+        } else if (gateway === 'edfapay') {
+            // Edfapay Redirect/Webhook
+            if (finalId) {
+                const edfapay = new EdfapayService();
+                const payment = await edfapay.getPayment(finalId);
+                
+                paymentStatus = payment.status; // 'paid' or 'failed'
+                transactionId = payment.id;
+                statusMessage = `Verified Edfapay status: ${payment.originalStatus}`;
+                
+                logger.info(`[Edfapay Callback] Verified Order #${orderId} with status: ${paymentStatus}`);
             }
         }
 
