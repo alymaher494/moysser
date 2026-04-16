@@ -37,6 +37,8 @@ Ecwid.OnPageLoaded.add(function (page) {
                         window.location.href = API_BASE_URL + '/checkout/noon/' + orderId;
                     } else if (method.indexOf('moyasar') !== -1 || method.indexOf('moysser') !== -1) {
                         window.location.href = API_BASE_URL + '/checkout/moyasar/' + orderId;
+                    } else if (method.indexOf('edfapay') !== -1) {
+                        window.location.href = API_BASE_URL + '/checkout/edfapay/' + orderId;
                     } else {
                         console.log("Unknown or offline payment method: " + method);
                         // Do nothing, let the user see "Thank you" page (e.g. for Cash on Delivery)
