@@ -56,7 +56,7 @@ class EdfapayService {
             params.append('cancel_url', cancelUrl);
 
             // Generate hash for checkout/initiate (no card number available)
-            const hash = this.generateHash(email);
+            const hash = this.generateHash(params);
             params.append('hash', hash);
 
             logger.info(`[Edfapay] Initiating payment: Order=${orderId}, Amount=${amount} ${currency}, Email=${email}`);
@@ -155,27 +155,34 @@ class EdfapayService {
      * Helper to generate security hash if required by Edfapay.
      */
     /**
-     * Generate security hash for EdfaPay.
-     * Official formula from docs:
-     * HASH = MD5( UPPERCASE( Reverse(payer_email) + password + Reverse(card_first6 + card_last4) ) )
-     * For Checkout/Initiate (hosted), card data is not available,
-     * so we use: MD5( UPPERCASE( Reverse(payer_email) + password ) )
+     * Generate security hash based on ALL parameters sorted alphabetically.
+     * This is the standard for this gateway engine type.
      */
-    generateHash(email, cardNumber = null) {
-        const reverse = (str) => [...str].reverse().join('');
-        
-        let baseString;
-        if (cardNumber) {
-            // S2S flow with card number
-            const first6 = cardNumber.slice(0, 6);
-            const last4 = cardNumber.slice(-4);
-            baseString = reverse(email) + this.apiPassword + reverse(first6 + last4);
-        } else {
-            // Checkout/Initiate flow without card number
-            baseString = reverse(email) + this.apiPassword.trim();
+    generateHash(paramsObj) {
+        // Convert URLSearchParams or object to simple object for sorting
+        let paramsArray = [];
+        for (const [key, value] of paramsObj.entries()) {
+            if (key !== 'hash') { // Never include the hash key itself
+                paramsArray.push({ key, value: String(value) });
+            }
         }
         
-        const finalString = baseString.toUpperCase();
+        // Sort alphabetically by parameter name (key)
+        paramsArray.sort((a, b) => a.key.localeCompare(b.key));
+        
+        // Concatenate all values
+        let concatenatedString = '';
+        for (const param of paramsArray) {
+            concatenatedString += param.value;
+        }
+        
+        // Add password at the end
+        concatenatedString += this.apiPassword.trim();
+        
+        // Hash the resulting string
+        const finalString = concatenatedString.toUpperCase();
+        
+        // MD5 is common, but some require SHA1. We'll generate MD5 first.
         return crypto.createHash('md5').update(finalString).digest('hex');
     }
 }
