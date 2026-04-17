@@ -31,6 +31,17 @@ const getPaymentService = (gateway) => {
 };
 
 /**
+ * Handle success and failure callbacks
+ */
+router.get('/payment/success', (req, res) => {
+    res.send('<h1>✅ تم الدفع بنجاح!</h1><p>شكراً لثقتك بنا. ستصلك رسالة تأكيد قريباً.</p>');
+});
+
+router.get('/payment/failure', (req, res) => {
+    res.send('<h1>❌ فشلت عملية الدفع</h1><p>يرجى المحاولة مرة أخرى أو اختيار وسيلة دفع مختلفة.</p>');
+});
+
+/**
  * Main Checkout Flow
  * Redirects user from Ecwid to the appropriate Payment Gateway
  */
@@ -71,17 +82,6 @@ router.get('/:gateway/:orderId', async (req, res) => {
         logger.error(`[Checkout] Error (${gateway}):`, error.message);
         return renderErrorPage(res, gateway, error.message);
     }
-});
-
-/**
- * Handle success and failure callbacks
- */
-router.get('/payment/success', (req, res) => {
-    res.send('<h1>✅ تم الدفع بنجاح!</h1><p>شكراً لثقتك بنا. ستصلك رسالة تأكيد قريباً.</p>');
-});
-
-router.get('/payment/failure', (req, res) => {
-    res.send('<h1>❌ فشلت عملية الدفع</h1><p>يرجى المحاولة مرة أخرى أو اختيار وسيلة دفع مختلفة.</p>');
 });
 
 // Backward compatibility (default to Moyasar)
