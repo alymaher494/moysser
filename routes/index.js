@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const healthController = require('../controllers/health.controller');
-const testController = require('../controllers/test.controller');
+
 const response = require('../utils/response');
 
 // Import new routes
@@ -28,15 +28,7 @@ router.get('/', (req, res) => {
  * Core API Routes
  */
 router.get('/health', healthController.checkHealth);
-router.get('/test', testController.runTest);
-
-// Secure or disable /env in production
-router.get('/env', (req, res) => {
-    if (process.env.NODE_ENV === 'production') {
-        return res.status(404).json({ success: false, message: 'Endpoint disabled for security' });
-    }
-    return testController.getEnv(req, res);
-});
+// removed test routes for security
 
 // Sub-routes
 router.use('/payments', paymentRoutes);
