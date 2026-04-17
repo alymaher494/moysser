@@ -155,35 +155,29 @@ class EdfapayService {
      * Helper to generate security hash if required by Edfapay.
      */
     /**
-     * Generate security hash based on ALL parameters sorted alphabetically.
-     * This is the standard for this gateway engine type.
+     * Generate security hash based on the exact formula provided by EdfaPay support:
+     * hash = SHA1(MD5( (order_id + order_amount + order_currency + order_description + merchant_pass).toUpperCase() ))
      */
     generateHash(paramsObj) {
-        // Convert URLSearchParams or object to simple object for sorting
-        let paramsArray = [];
-        for (const [key, value] of paramsObj.entries()) {
-            if (key !== 'hash') { // Never include the hash key itself
-                paramsArray.push({ key, value: String(value) });
-            }
-        }
+        const orderId = paramsObj.get('order_id') || '';
+        const amount = paramsObj.get('order_amount') || '';
+        const currency = paramsObj.get('order_currency') || '';
+        const description = paramsObj.get('order_description') || '';
+        const password = this.apiPassword.trim();
+
+        // 1. Concatenate fields in exact order
+        const toMd5 = orderId + amount + currency + description + password;
         
-        // Sort alphabetically by parameter name (key)
-        paramsArray.sort((a, b) => a.key.localeCompare(b.key));
-        
-        // Concatenate all values
-        let concatenatedString = '';
-        for (const param of paramsArray) {
-            concatenatedString += param.value;
-        }
-        
-        // Add password at the end
-        concatenatedString += this.apiPassword.trim();
-        
-        // Hash the resulting string
-        const finalString = concatenatedString.toUpperCase();
-        
-        // MD5 is common, but some require SHA1. We'll generate MD5 first.
-        return crypto.createHash('md5').update(finalString).digest('hex');
+        // 2. Convert to uppercase
+        const toMd5Upper = toMd5.toUpperCase();
+
+        // 3. Double hash: SHA1( MD5(string) )
+        // Note: support says CryptoJS.MD5(...).toString() which is hex, then SHA1 of that hex string
+        const md5Hash = crypto.createHash('md5').update(toMd5Upper).digest('hex');
+        const finalHash = crypto.createHash('sha1').update(md5Hash).digest('hex');
+
+        logger.info(`[Edfapay] Generated Hash for Order ${orderId}`);
+        return finalHash;
     }
 }
 
