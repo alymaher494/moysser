@@ -38,7 +38,7 @@ class EdfapayService {
 
             const params = new URLSearchParams();
             params.append('action', 'SALE');
-            params.append('edfa_merchant_id', this.merchantKey.trim());
+            params.append('client_key', this.merchantKey.trim());
             params.append('order_id', orderId);
             params.append('order_amount', amount);
             params.append('order_currency', currency);
@@ -61,7 +61,7 @@ class EdfapayService {
 
             logger.info(`[Edfapay] Initiating payment: Order=${orderId}, Amount=${amount} ${currency}, Email=${email}`);
 
-            const response = await axios.post(`${this.baseUrl}/payment/initiate`, params, {
+            const response = await axios.post(`${this.baseUrl}/payment/post`, params, {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
                 }
