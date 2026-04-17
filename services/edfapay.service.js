@@ -38,11 +38,12 @@ class EdfapayService {
 
             const params = new URLSearchParams();
             params.append('action', 'SALE');
-            params.append('client_key', this.merchantKey.trim());
+            params.append('edfa_merchant_id', this.merchantKey.trim());
             params.append('order_id', orderId);
             params.append('order_amount', amount);
             params.append('order_currency', currency);
-            params.append('order_description', (orderData.description || `Payment for Order #${orderId}`).trim());
+            const orderDescription = (orderData.description || `Payment for Order #${orderId}`).trim();
+            params.append('order_description', orderDescription);
             params.append('payer_first_name', firstName);
             params.append('payer_last_name', lastName);
             params.append('payer_email', email);
@@ -52,26 +53,29 @@ class EdfapayService {
             params.append('payer_zip', (orderData.zip_code || '12345').trim());
             params.append('payer_country', (orderData.country || 'SA').trim());
             params.append('payer_ip', (orderData.payer_ip || '156.204.1.1').trim());
-            params.append('success_url', successUrl);
-            params.append('cancel_url', cancelUrl);
+            params.append('req_token', 'N');
+            params.append('checkout_expiry_mins', '10080');
+            params.append('term_url_3ds', successUrl);
+            params.append('auth', 'N');
+            params.append('recurring_init', 'N');
 
             // Generate hash for checkout/initiate (no card number available)
-            const hash = this.generateHash(params);
+            const hash = this.generateHash(orderId, amount, currency, orderDescription);
             params.append('hash', hash);
 
             logger.info(`[Edfapay] Initiating payment: Order=${orderId}, Amount=${amount} ${currency}, Email=${email}`);
 
-            const response = await axios.post(`${this.baseUrl}/payment/post`, params, {
+            const response = await axios.post(`${this.baseUrl}/payment/initiate`, params, {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
                 }
             });
 
             // Handle successful initiation
-            if (response.data && response.data.result === 'REDIRECT') {
+            if (response.data && response.data.redirect_url) {
                 return {
-                    id: response.data.order_id,
-                    transactionId: response.data.transaction_id,
+                    id: orderId,
+                    transactionId: null, // Initiate does not return transaction_id yet
                     status: 'initiated',
                     redirectUrl: response.data.redirect_url,
                     source: response.data
@@ -85,6 +89,7 @@ class EdfapayService {
                 throw new Error(`Edfapay Error: ${response.data.error_message || 'Unknown error'}`);
             }
 
+            logger.error(`[Edfapay] Unexpected API Response: ${JSON.stringify(response.data)}`);
             throw new Error(`Edfapay Create Payment Error: Invalid response format`);
             
         } catch (error) {
@@ -155,28 +160,20 @@ class EdfapayService {
      * Helper to generate security hash if required by Edfapay.
      */
     /**
-     * Generate security hash based on the exact formula provided by EdfaPay support:
-     * hash = SHA1(MD5( (order_id + order_amount + order_currency + order_description + merchant_pass).toUpperCase() ))
+     * Generate security hash based on the exact formula from EdfaPay docs:
+     * hash = SHA1(MD5(UPPERCASE(order_id + order_amount + order_currency + order_description + merchant_password)))
      */
-    generateHash(paramsObj) {
-        const orderId = paramsObj.get('order_id') || '';
-        const amount = paramsObj.get('order_amount') || '';
-        const currency = paramsObj.get('order_currency') || '';
-        const description = paramsObj.get('order_description') || '';
-        const password = this.apiPassword.trim();
-
-        // 1. Concatenate fields in exact order
-        const toMd5 = orderId + amount + currency + description + password;
+    generateHash(order_id, amount, currency, description) {
+        // 1. Concatenate fields in exact order and convert to uppercase
+        const stringToHash = (order_id + amount + currency + description + this.apiPassword.trim()).toUpperCase();
         
-        // 2. Convert to uppercase
-        const toMd5Upper = toMd5.toUpperCase();
+        // 2. MD5 hash
+        const md5Hash = crypto.createHash('md5').update(stringToHash).digest('hex');
 
-        // 3. Double hash: SHA1( MD5(string) )
-        // Note: support says CryptoJS.MD5(...).toString() which is hex, then SHA1 of that hex string
-        const md5Hash = crypto.createHash('md5').update(toMd5Upper).digest('hex');
+        // 3. SHA1 hash
         const finalHash = crypto.createHash('sha1').update(md5Hash).digest('hex');
 
-        logger.info(`[Edfapay] Generated Hash for Order ${orderId}`);
+        logger.info(`[Edfapay] Generated Hash for Order ${order_id}`);
         return finalHash;
     }
 }
